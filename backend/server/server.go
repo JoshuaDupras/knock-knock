@@ -59,6 +59,23 @@ func GetPing(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+// CORS Middleware
+func enableCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*") // Allow all origins
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		// Handle preflight request
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 // StartServer initializes the HTTP + WebSocket server
 func StartServer() {
 	mux := http.NewServeMux()
@@ -66,10 +83,16 @@ func StartServer() {
 	// Register REST API endpoints
 	mux.HandleFunc("/ping", GetPing)
 
-	// Register WebSocket manually (don't use api.HandlerFromMux here)
-	mux.HandleFunc("/ws", ChatWebSocket)
+	// Register authentication endpoints
+	mux.HandleFunc("/login", LoginHandler)
+
+	// Protect WebSocket with JWT middleware
+	mux.HandleFunc("/ws", JWTMiddleware(ChatWebSocket))
+
+	// Wrap CORS middleware around handlers
+	handler := enableCORS(mux)
 
 	// Start the HTTP + WebSocket server
 	log.Println("Server running on http://0.0.0.0:8080 (HTTP + WebSockets)")
-	log.Fatal(http.ListenAndServe("0.0.0.0:8080", mux))
+	log.Fatal(http.ListenAndServe("0.0.0.0:8080", handler))
 }

@@ -1,0 +1,55 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+
+const Login = () => {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const router = useRouter();
+
+  const handleLogin = async () => {
+    setError("");
+    const response = await fetch("http://localhost:8080/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+
+    if (!response.ok) {
+      setError("Invalid credentials");
+      return;
+    }
+
+    const data = await response.json();
+    localStorage.setItem("token", data.token);
+    router.push("/chat");
+  };
+
+  return (
+    <div className="flex flex-col items-center justify-center h-screen">
+      <h2 className="text-2xl mb-4">Login</h2>
+      <input
+        type="text"
+        placeholder="Username"
+        className="p-2 border mb-2"
+        value={username}
+        onChange={(e) => setUsername(e.target.value)}
+      />
+      <input
+        type="password"
+        placeholder="Password"
+        className="p-2 border mb-2"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+      />
+      <button className="p-2 bg-blue-500 text-white" onClick={handleLogin}>
+        Login
+      </button>
+      {error && <p className="text-red-500 mt-2">{error}</p>}
+    </div>
+  );
+};
+
+export default Login;

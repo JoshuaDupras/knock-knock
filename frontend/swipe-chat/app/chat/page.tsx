@@ -1,6 +1,8 @@
-"use client"; // Required for Next.js App Router
+"use client";
 
 import { useState, useEffect } from "react";
+
+// const WS_URL = "ws://172.22.223.245:8080/ws";
 
 const Chat: React.FC = () => {
   const [messages, setMessages] = useState<string[]>([]);
@@ -8,15 +10,25 @@ const Chat: React.FC = () => {
   const [ws, setWs] = useState<WebSocket | null>(null);
 
   useEffect(() => {
-    const socket = new WebSocket("ws://localhost:8080/ws"); // Replace with Go server URL
+    const token = localStorage.getItem("token");
+    if (!token) {
+      alert("Not authenticated! Redirecting to login...");
+      window.location.href = "/login";
+      return;
+    }
 
-    socket.onopen = () => console.log("Connected to WebSocket server");
+    const socket = new WebSocket(`ws://172.22.223.245:8080/ws?token=${token}`);
+
+    socket.onopen = () => socket.send(token); // Send token on connection
+
     socket.onmessage = (event) => {
       setMessages((prev) => [...prev, event.data]);
     };
+
     socket.onclose = () => console.log("WebSocket disconnected");
 
     setWs(socket);
+
     return () => socket.close();
   }, []);
 
@@ -38,15 +50,12 @@ const Chat: React.FC = () => {
       <div className="flex mt-4 w-full max-w-lg">
         <input
           type="text"
-          className="flex-1 p-2 border rounded-l-lg"
+          className="flex-1 p-2 border rounded-l-lg text-black bg-white"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyPress={(e) => e.key === "Enter" && sendMessage()}
         />
-        <button
-          className="p-2 bg-blue-500 text-white rounded-r-lg"
-          onClick={sendMessage}
-        >
+        <button className="p-2 bg-blue-500 text-white rounded-r-lg" onClick={sendMessage}>
           Send
         </button>
       </div>
