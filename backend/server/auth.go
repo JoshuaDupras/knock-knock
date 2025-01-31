@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/gorilla/websocket"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -50,7 +51,8 @@ func UserInfoHandler(w http.ResponseWriter, r *http.Request) {
 
 // Mutex to prevent concurrent map writes
 var activeUsersMutex sync.Mutex
-var activeUsers = make(map[string]bool) // Track logged-in users
+var activeUsers = make(map[string]*websocket.Conn) // Stores WebSocket connections
+var activeUsersMap = make(map[string]bool)         // Tracks active users (logged-in)
 
 // Get active users
 func GetActiveUsersHandler(w http.ResponseWriter, r *http.Request) {
@@ -58,7 +60,7 @@ func GetActiveUsersHandler(w http.ResponseWriter, r *http.Request) {
 	defer activeUsersMutex.Unlock()
 
 	userList := []string{}
-	for user := range activeUsers {
+	for user := range activeUsersMap { // Use activeUsersMap to track logged-in users
 		userList = append(userList, user)
 	}
 
@@ -89,11 +91,12 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Mark user as active
 	activeUsersMutex.Lock()
-	activeUsers[user.Username] = true
+	activeUsersMap[user.Username] = true // ✅ Correctly track logged-in users
 	activeUsersMutex.Unlock()
 
 	json.NewEncoder(w).Encode(map[string]string{"token": token})
 }
+
 
 // Modify logout handler to remove users from active list
 func LogoutHandler(w http.ResponseWriter, r *http.Request) {

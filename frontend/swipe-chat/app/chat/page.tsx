@@ -6,11 +6,12 @@ import { useRouter } from "next/navigation";
 const WS_URL = "ws://localhost:8080/ws";
 
 const Chat: React.FC = () => {
-  const [messages, setMessages] = useState<string[]>([]);
+  const [messages, setMessages] = useState<{ from: string; message: string }[]>([]);
   const [input, setInput] = useState<string>("");
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [username, setUsername] = useState<string>("");
   const [users, setUsers] = useState<string[]>([]);
+  const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -46,10 +47,11 @@ const Chat: React.FC = () => {
     const interval = setInterval(fetchUsers, 5000); // Refresh every 5s
 
     const socket = new WebSocket(`${WS_URL}?token=${token}`);
-    socket.onopen = () => socket.send(token);
+    socket.onopen = () => console.log("WebSocket connected");
 
     socket.onmessage = (event) => {
-      setMessages((prev) => [...prev, event.data]);
+      const data = JSON.parse(event.data);
+      setMessages((prev) => [...prev, data]);
     };
 
     socket.onclose = () => console.log("WebSocket disconnected");
@@ -63,12 +65,17 @@ const Chat: React.FC = () => {
   }, []);
 
   const sendMessage = () => {
-    if (ws && input.trim()) {
-      ws.send(input);
-      setMessages((prev) => [...prev, `You: ${input}`]);
+    if (ws && input.trim() && selectedUser) {
+      const messageData = JSON.stringify({ to: selectedUser, message: input });
+      console.log("Sending message:", messageData);
+      ws.send(messageData);
+      setMessages((prev) => [...prev, { from: "You", message: input }]);
       setInput("");
+    } else {
+      console.log("WebSocket not connected or no recipient selected");
     }
   };
+  
 
   const handleLogout = () => {
     localStorage.removeItem("token");
@@ -92,23 +99,31 @@ const Chat: React.FC = () => {
         <h3 className="text-lg font-bold mb-2">Active Users</h3>
         <ul className="mb-4">
           {users.map((user, index) => (
-            <li key={index} className="p-1 text-black">{user}</li>
+            <li
+              key={index}
+              className={`p-1 cursor-pointer ${selectedUser === user ? "bg-blue-300" : "hover:bg-gray-200"}`}
+              onClick={() => setSelectedUser(user)}
+            >
+              {user}
+            </li>
           ))}
         </ul>
         <h3 className="text-lg font-bold mb-2">Chat</h3>
         {messages.map((msg, index) => (
-          <div key={index} className="p-2 border-b text-black">{msg}</div>
+          <div key={index} className="p-2 border-b text-black">
+            <strong>{msg.from}: </strong> {msg.message}
+          </div>
         ))}
       </div>
       <div className="flex mt-4 w-full max-w-lg">
         <input
           type="text"
-          className="flex-1 p-2 border rounded-l-lg text-black bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="flex-1 p-2 border rounded-l-lg text-black bg-white"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyPress={(e) => e.key === "Enter" && sendMessage()}
         />
-        <button className="p-2 bg-blue-500 text-white rounded-r-lg hover:bg-blue-600" onClick={sendMessage}>
+        <button className="p-2 bg-blue-500 text-white rounded-r-lg" onClick={sendMessage}>
           Send
         </button>
       </div>

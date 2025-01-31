@@ -2,10 +2,11 @@ package server
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
+	"sync"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 )
 
@@ -17,40 +18,70 @@ var upgrader = websocket.Upgrader{
 // ChatServer implements the generated API interface
 type ChatServer struct{}
 
-// ChatWebSocket handles WebSocket connections
+var wsMutex sync.Mutex
+
+// Handle WebSocket connection
 func ChatWebSocket(w http.ResponseWriter, r *http.Request) {
-	log.Println("Attempting WebSocket Upgrade...")
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Println("Failed to upgrade connection:", err)
-		http.Error(w, "Could not open WebSocket connection", http.StatusBadRequest)
+	tokenString := r.URL.Query().Get("token")
+	if tokenString == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	defer conn.Close()
 
-	log.Println("WebSocket client connected")
+	claims := jwt.MapClaims{}
+	token, err := jwt.ParseWithClaims(tokenString, &claims, func(token *jwt.Token) (interface{}, error) {
+		return jwtSecret, nil
+	})
+	if err != nil || !token.Valid {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	username := claims["username"].(string)
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println("WebSocket upgrade failed:", err)
+		return
+	}
+
+	// Store WebSocket connection for messaging
+	wsMutex.Lock()
+	activeUsers[username] = conn
+	wsMutex.Unlock()
+
+	log.Println(username, "connected to WebSocket")
+
+	defer func() {
+		wsMutex.Lock()
+		delete(activeUsers, username) // Remove WebSocket connection on disconnect
+		delete(activeUsersMap, username) // Remove from active users list
+		wsMutex.Unlock()
+		conn.Close()
+		log.Println(username, "disconnected from WebSocket")
+	}()
 
 	for {
-		_, msg, err := conn.ReadMessage()
+		var msg map[string]string
+		err := conn.ReadJSON(&msg)
 		if err != nil {
-			log.Println("Read error:", err)
+			log.Println("Error reading message:", err)
 			break
 		}
 
-		fmt.Println("received message:", string(msg))
+		recipient := msg["to"]
+		message := msg["message"]
 
-	    response := string(msg) + " received"
-
-		fmt.Println("responding with message:", response)
-
-		// Echo message back to the client
-		err = conn.WriteMessage(websocket.TextMessage, []byte(response))
-		if err != nil {
-			log.Println("Write error:", err)
-			break
+		// Send private message if recipient exists
+		wsMutex.Lock()
+		if recipientConn, exists := activeUsers[recipient]; exists {
+			recipientConn.WriteJSON(map[string]string{"from": username, "message": message})
 		}
+		wsMutex.Unlock()
 	}
 }
+
+
 
 // Ping responds with a JSON "pong"
 func GetPing(w http.ResponseWriter, r *http.Request) {
