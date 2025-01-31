@@ -25,6 +25,33 @@ var users = map[string]string{
 	"user2": "$2a$10$bm3n66QHwjr78N1rnyg2tuXeWJfJiJhajtd9yL2V3Y3b9B5ZvZQeW", // bcrypt hashed password: "password"
 }
 
+// Get user info from JWT
+func UserInfoHandler(w http.ResponseWriter, r *http.Request) {
+	tokenString := r.Header.Get("Authorization")
+	if tokenString == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	claims := jwt.MapClaims{}
+	token, err := jwt.ParseWithClaims(tokenString, &claims, func(token *jwt.Token) (interface{}, error) {
+		return jwtSecret, nil
+	})
+
+	if err != nil || !token.Valid {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	username := claims["username"].(string)
+	json.NewEncoder(w).Encode(map[string]string{"username": username})
+}
+
+// Logout handler (for session-based auth, currently a no-op for JWT)
+func LogoutHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
 // Generate JWT token
 func generateJWT(username string) (string, error) {
 	claims := jwt.MapClaims{

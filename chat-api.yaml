@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Chat API
-  description: WebSocket-based chat application
+  description: WebSocket-based chat application with authentication
   version: 1.0.0
 
 servers:
@@ -12,7 +12,7 @@ paths:
     get:
       responses:
         '200':
-          description: test response
+          description: ping response
           content:
             application/json:
               schema:
@@ -21,17 +21,81 @@ paths:
     get:
       summary: WebSocket connection for real-time chat
       operationId: chatWebSocket
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
       responses:
         "101":
           description: Switching Protocols
+  /login:
+    post:
+      summary: Logs in a user and returns a JWT token
+      operationId: loginUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        "200":
+          description: Successful login
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+  /me:
+    get:
+      summary: Gets the logged-in user's info
+      operationId: getUserInfo
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: User info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInfo'
+  /logout:
+    post:
+      summary: Logs out a user (clears session)
+      operationId: logoutUser
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Logout successful
+
 components:
   schemas:
-    # base types
     Pong:
       type: object
-      required:
-        - ping
       properties:
         ping:
           type: string
           example: pong
+    LoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+    UserInfo:
+      type: object
+      properties:
+        username:
+          type: string
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
