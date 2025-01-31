@@ -10,6 +10,7 @@ const Chat: React.FC = () => {
   const [input, setInput] = useState<string>("");
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [username, setUsername] = useState<string>("");
+  const [users, setUsers] = useState<string[]>([]);
   const router = useRouter();
 
   useEffect(() => {
@@ -32,6 +33,18 @@ const Chat: React.FC = () => {
         window.location.href = "/login";
       });
 
+    // Fetch active users
+    const fetchUsers = () => {
+      fetch("http://localhost:8080/users", {
+        headers: { Authorization: token },
+      })
+        .then((res) => res.json())
+        .then((data) => setUsers(data.users));
+    };
+
+    fetchUsers();
+    const interval = setInterval(fetchUsers, 5000); // Refresh every 5s
+
     const socket = new WebSocket(`${WS_URL}?token=${token}`);
     socket.onopen = () => socket.send(token);
 
@@ -43,7 +56,10 @@ const Chat: React.FC = () => {
 
     setWs(socket);
 
-    return () => socket.close();
+    return () => {
+      socket.close();
+      clearInterval(interval);
+    };
   }, []);
 
   const sendMessage = () => {
@@ -56,7 +72,12 @@ const Chat: React.FC = () => {
 
   const handleLogout = () => {
     localStorage.removeItem("token");
-    router.push("/login");
+    fetch("http://localhost:8080/logout", {
+      method: "POST",
+      headers: { Authorization: localStorage.getItem("token") || "" },
+    }).then(() => {
+      router.push("/login");
+    });
   };
 
   return (
@@ -68,6 +89,13 @@ const Chat: React.FC = () => {
         </button>
       </div>
       <div className="w-full max-w-lg border p-4 rounded-lg shadow-md h-96 overflow-y-auto">
+        <h3 className="text-lg font-bold mb-2">Active Users</h3>
+        <ul className="mb-4">
+          {users.map((user, index) => (
+            <li key={index} className="p-1 text-black">{user}</li>
+          ))}
+        </ul>
+        <h3 className="text-lg font-bold mb-2">Chat</h3>
         {messages.map((msg, index) => (
           <div key={index} className="p-2 border-b text-black">{msg}</div>
         ))}

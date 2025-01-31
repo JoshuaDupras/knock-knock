@@ -69,8 +69,25 @@ paths:
       responses:
         "200":
           description: Logout successful
-
+  /users:
+    get:
+      summary: Get list of active users
+      operationId: getActiveUsers
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: List of active users
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActiveUsers'
 components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
   schemas:
     Pong:
       type: object
@@ -95,7 +112,10 @@ components:
       properties:
         username:
           type: string
-    BearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
+    ActiveUsers:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            type: string

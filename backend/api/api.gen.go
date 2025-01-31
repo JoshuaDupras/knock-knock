@@ -19,12 +19,46 @@ import (
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/oapi-codegen/runtime"
 )
+
+const (
+	BearerAuthScopes = "BearerAuth.Scopes"
+)
+
+// ActiveUsers defines model for ActiveUsers.
+type ActiveUsers struct {
+	Users *[]string `json:"users,omitempty"`
+}
+
+// LoginRequest defines model for LoginRequest.
+type LoginRequest struct {
+	Password *string `json:"password,omitempty"`
+	Username *string `json:"username,omitempty"`
+}
+
+// LoginResponse defines model for LoginResponse.
+type LoginResponse struct {
+	Token *string `json:"token,omitempty"`
+}
 
 // Pong defines model for Pong.
 type Pong struct {
-	Ping string `json:"ping"`
+	Ping *string `json:"ping,omitempty"`
 }
+
+// UserInfo defines model for UserInfo.
+type UserInfo struct {
+	Username *string `json:"username,omitempty"`
+}
+
+// ChatWebSocketParams defines parameters for ChatWebSocket.
+type ChatWebSocketParams struct {
+	Token string `form:"token" json:"token"`
+}
+
+// LoginUserJSONRequestBody defines body for LoginUser for application/json ContentType.
+type LoginUserJSONRequestBody = LoginRequest
 
 // RequestEditorFn  is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -99,11 +133,73 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
+	// LoginUserWithBody request with any body
+	LoginUserWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	LoginUser(ctx context.Context, body LoginUserJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// LogoutUser request
+	LogoutUser(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetUserInfo request
+	GetUserInfo(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetPing request
 	GetPing(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetActiveUsers request
+	GetActiveUsers(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ChatWebSocket request
-	ChatWebSocket(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+	ChatWebSocket(ctx context.Context, params *ChatWebSocketParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+func (c *Client) LoginUserWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewLoginUserRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) LoginUser(ctx context.Context, body LoginUserJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewLoginUserRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) LogoutUser(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewLogoutUserRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetUserInfo(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetUserInfoRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 func (c *Client) GetPing(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -118,8 +214,8 @@ func (c *Client) GetPing(ctx context.Context, reqEditors ...RequestEditorFn) (*h
 	return c.Client.Do(req)
 }
 
-func (c *Client) ChatWebSocket(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewChatWebSocketRequest(c.Server)
+func (c *Client) GetActiveUsers(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetActiveUsersRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -128,6 +224,112 @@ func (c *Client) ChatWebSocket(ctx context.Context, reqEditors ...RequestEditorF
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+func (c *Client) ChatWebSocket(ctx context.Context, params *ChatWebSocketParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewChatWebSocketRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// NewLoginUserRequest calls the generic LoginUser builder with application/json body
+func NewLoginUserRequest(server string, body LoginUserJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewLoginUserRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewLoginUserRequestWithBody generates requests for LoginUser with any type of body
+func NewLoginUserRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/login")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewLogoutUserRequest generates requests for LogoutUser
+func NewLogoutUserRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/logout")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetUserInfoRequest generates requests for GetUserInfo
+func NewGetUserInfoRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/me")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
 }
 
 // NewGetPingRequest generates requests for GetPing
@@ -157,8 +359,35 @@ func NewGetPingRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewGetActiveUsersRequest generates requests for GetActiveUsers
+func NewGetActiveUsersRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/users")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewChatWebSocketRequest generates requests for ChatWebSocket
-func NewChatWebSocketRequest(server string) (*http.Request, error) {
+func NewChatWebSocketRequest(server string, params *ChatWebSocketParams) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -174,6 +403,24 @@ func NewChatWebSocketRequest(server string) (*http.Request, error) {
 	queryURL, err := serverURL.Parse(operationPath)
 	if err != nil {
 		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "token", runtime.ParamLocationQuery, params.Token); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
 	}
 
 	req, err := http.NewRequest("GET", queryURL.String(), nil)
@@ -227,11 +474,90 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
+	// LoginUserWithBodyWithResponse request with any body
+	LoginUserWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*LoginUserResponse, error)
+
+	LoginUserWithResponse(ctx context.Context, body LoginUserJSONRequestBody, reqEditors ...RequestEditorFn) (*LoginUserResponse, error)
+
+	// LogoutUserWithResponse request
+	LogoutUserWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*LogoutUserResponse, error)
+
+	// GetUserInfoWithResponse request
+	GetUserInfoWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetUserInfoResponse, error)
+
 	// GetPingWithResponse request
 	GetPingWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetPingResponse, error)
 
+	// GetActiveUsersWithResponse request
+	GetActiveUsersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetActiveUsersResponse, error)
+
 	// ChatWebSocketWithResponse request
-	ChatWebSocketWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ChatWebSocketResponse, error)
+	ChatWebSocketWithResponse(ctx context.Context, params *ChatWebSocketParams, reqEditors ...RequestEditorFn) (*ChatWebSocketResponse, error)
+}
+
+type LoginUserResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *LoginResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r LoginUserResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r LoginUserResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type LogoutUserResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// Status returns HTTPResponse.Status
+func (r LogoutUserResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r LogoutUserResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetUserInfoResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *UserInfo
+}
+
+// Status returns HTTPResponse.Status
+func (r GetUserInfoResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetUserInfoResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
 }
 
 type GetPingResponse struct {
@@ -250,6 +576,28 @@ func (r GetPingResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r GetPingResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetActiveUsersResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ActiveUsers
+}
+
+// Status returns HTTPResponse.Status
+func (r GetActiveUsersResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetActiveUsersResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -277,6 +625,41 @@ func (r ChatWebSocketResponse) StatusCode() int {
 	return 0
 }
 
+// LoginUserWithBodyWithResponse request with arbitrary body returning *LoginUserResponse
+func (c *ClientWithResponses) LoginUserWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*LoginUserResponse, error) {
+	rsp, err := c.LoginUserWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseLoginUserResponse(rsp)
+}
+
+func (c *ClientWithResponses) LoginUserWithResponse(ctx context.Context, body LoginUserJSONRequestBody, reqEditors ...RequestEditorFn) (*LoginUserResponse, error) {
+	rsp, err := c.LoginUser(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseLoginUserResponse(rsp)
+}
+
+// LogoutUserWithResponse request returning *LogoutUserResponse
+func (c *ClientWithResponses) LogoutUserWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*LogoutUserResponse, error) {
+	rsp, err := c.LogoutUser(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseLogoutUserResponse(rsp)
+}
+
+// GetUserInfoWithResponse request returning *GetUserInfoResponse
+func (c *ClientWithResponses) GetUserInfoWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetUserInfoResponse, error) {
+	rsp, err := c.GetUserInfo(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetUserInfoResponse(rsp)
+}
+
 // GetPingWithResponse request returning *GetPingResponse
 func (c *ClientWithResponses) GetPingWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetPingResponse, error) {
 	rsp, err := c.GetPing(ctx, reqEditors...)
@@ -286,13 +669,90 @@ func (c *ClientWithResponses) GetPingWithResponse(ctx context.Context, reqEditor
 	return ParseGetPingResponse(rsp)
 }
 
+// GetActiveUsersWithResponse request returning *GetActiveUsersResponse
+func (c *ClientWithResponses) GetActiveUsersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetActiveUsersResponse, error) {
+	rsp, err := c.GetActiveUsers(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetActiveUsersResponse(rsp)
+}
+
 // ChatWebSocketWithResponse request returning *ChatWebSocketResponse
-func (c *ClientWithResponses) ChatWebSocketWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ChatWebSocketResponse, error) {
-	rsp, err := c.ChatWebSocket(ctx, reqEditors...)
+func (c *ClientWithResponses) ChatWebSocketWithResponse(ctx context.Context, params *ChatWebSocketParams, reqEditors ...RequestEditorFn) (*ChatWebSocketResponse, error) {
+	rsp, err := c.ChatWebSocket(ctx, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
 	return ParseChatWebSocketResponse(rsp)
+}
+
+// ParseLoginUserResponse parses an HTTP response from a LoginUserWithResponse call
+func ParseLoginUserResponse(rsp *http.Response) (*LoginUserResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &LoginUserResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest LoginResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseLogoutUserResponse parses an HTTP response from a LogoutUserWithResponse call
+func ParseLogoutUserResponse(rsp *http.Response) (*LogoutUserResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &LogoutUserResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
+// ParseGetUserInfoResponse parses an HTTP response from a GetUserInfoWithResponse call
+func ParseGetUserInfoResponse(rsp *http.Response) (*GetUserInfoResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetUserInfoResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest UserInfo
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
 }
 
 // ParseGetPingResponse parses an HTTP response from a GetPingWithResponse call
@@ -321,6 +781,32 @@ func ParseGetPingResponse(rsp *http.Response) (*GetPingResponse, error) {
 	return response, nil
 }
 
+// ParseGetActiveUsersResponse parses an HTTP response from a GetActiveUsersWithResponse call
+func ParseGetActiveUsersResponse(rsp *http.Response) (*GetActiveUsersResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetActiveUsersResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ActiveUsers
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseChatWebSocketResponse parses an HTTP response from a ChatWebSocketWithResponse call
 func ParseChatWebSocketResponse(rsp *http.Response) (*ChatWebSocketResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -339,12 +825,24 @@ func ParseChatWebSocketResponse(rsp *http.Response) (*ChatWebSocketResponse, err
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// Logs in a user and returns a JWT token
+	// (POST /login)
+	LoginUser(w http.ResponseWriter, r *http.Request)
+	// Logs out a user (clears session)
+	// (POST /logout)
+	LogoutUser(w http.ResponseWriter, r *http.Request)
+	// Gets the logged-in user's info
+	// (GET /me)
+	GetUserInfo(w http.ResponseWriter, r *http.Request)
 
 	// (GET /ping)
 	GetPing(w http.ResponseWriter, r *http.Request)
+	// Get list of active users
+	// (GET /users)
+	GetActiveUsers(w http.ResponseWriter, r *http.Request)
 	// WebSocket connection for real-time chat
 	// (GET /ws)
-	ChatWebSocket(w http.ResponseWriter, r *http.Request)
+	ChatWebSocket(w http.ResponseWriter, r *http.Request, params ChatWebSocketParams)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -355,6 +853,60 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// LoginUser operation middleware
+func (siw *ServerInterfaceWrapper) LoginUser(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LoginUser(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// LogoutUser operation middleware
+func (siw *ServerInterfaceWrapper) LogoutUser(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LogoutUser(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetUserInfo operation middleware
+func (siw *ServerInterfaceWrapper) GetUserInfo(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetUserInfo(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // GetPing operation middleware
 func (siw *ServerInterfaceWrapper) GetPing(w http.ResponseWriter, r *http.Request) {
@@ -370,11 +922,51 @@ func (siw *ServerInterfaceWrapper) GetPing(w http.ResponseWriter, r *http.Reques
 	handler.ServeHTTP(w, r)
 }
 
+// GetActiveUsers operation middleware
+func (siw *ServerInterfaceWrapper) GetActiveUsers(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetActiveUsers(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ChatWebSocket operation middleware
 func (siw *ServerInterfaceWrapper) ChatWebSocket(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ChatWebSocketParams
+
+	// ------------- Required query parameter "token" -------------
+
+	if paramValue := r.URL.Query().Get("token"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "token"})
+		return
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "token", r.URL.Query(), &params.Token)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ChatWebSocket(w, r)
+		siw.Handler.ChatWebSocket(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -504,7 +1096,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 		ErrorHandlerFunc:   options.ErrorHandlerFunc,
 	}
 
+	m.HandleFunc("POST "+options.BaseURL+"/login", wrapper.LoginUser)
+	m.HandleFunc("POST "+options.BaseURL+"/logout", wrapper.LogoutUser)
+	m.HandleFunc("GET "+options.BaseURL+"/me", wrapper.GetUserInfo)
 	m.HandleFunc("GET "+options.BaseURL+"/ping", wrapper.GetPing)
+	m.HandleFunc("GET "+options.BaseURL+"/users", wrapper.GetActiveUsers)
 	m.HandleFunc("GET "+options.BaseURL+"/ws", wrapper.ChatWebSocket)
 
 	return m
@@ -513,13 +1109,18 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"H4sIAAAAAAAC/3SRT4/TMBDFv0o0cMzGLntZ+YY4oL1F2gOH1R5cZ9q4JJ7BnlKqKt8djUNLAXEa/3lj",
-	"v/ebCwSamRImKeAuUMKIs6/LntJeK2dizBKxnnJcT/GHn3lCcMCqa0HOrLsiWRXL0kLGb8eYcQD3ura9",
-	"3VS0PWAQWFQW0470xQFLyJElUgIHX3D7QuErysPWFxyaMHppPPMUg6+SFiRKNfBJrz72z9DCd8xl7d90",
-	"trOwtECMyXMEB4+d7R6hBfYy1izmGmaPokVz1sefB3DwGaWPNVrGwpTKCuCDtVoCJcFU2+5cmUPR368c",
-	"dfU+4w4cvDO/QZtflE1FXCH8GZ5Rmuuner+0YE7lv04VwI3X3343dvMv3ZdTlDDGtG/6TEKBplJHVo7z",
-	"7PP5nn8TKCUM2tjsKDcZ/fQgccY6ktV9wazkwb1e4JgncDCKsDNmouCnkYq4J/tkYXlbfgYAAP//1Sxx",
-	"jnECAAA=",
+	"H4sIAAAAAAAC/7RVT2/bPgz9KgJ/P2Ab4Mbueil8awesaNFDsHToochBkZlYrS25Et0sKPLdB0rOf6do",
+	"gfVmSTT5+PhIvoKydWMNGvKQv4JXJdYyfF4o0i/426MLx8bZBh1pDKd2da0J6/BBiwYhB09Omxksk9WF",
+	"dE4uYLm5sJNHVMQWt3amzS98btHTYYhGej+3ruh1zvGNrLHn8Y1IvrHG42Eosk9o3ulqaM2sB6yOt/hH",
+	"1k3FfzRsl7zHI1N8baa2n+V3Z7lMwKNqnabFiKsYXVyidOguWir5NAmnn9bVkiCHm/s7SGLN2VN83YAu",
+	"iRpYsmPdwSvQK6cb0tZADvc4GVn1hHQykR4LoUpJQjZNpZVkEzHXVArZUomGujv2rikw9IPNL4bXkMAL",
+	"Oh99ng6yQcas2AaNbDTkcDbIBmeQQCOpDDmlFZcz0GWjcpi04P66gDxWm1mFBFyU16UtFmyorCE04Z8t",
+	"oOmjt2Yjf/763+EUcvgv3fRH2jVHuqPbwA9H0Q4LyMm1GC6i1gLe71n2r2N3Sg7Bd4syapVC76dtJSJN",
+	"QRhtXUu3iNx4oY2QgsUlpCmEQ2qd8UKKm/s7EXuBf2KabUtv8mxbWhN9mPEusmgu/BrgjmYhf9hV68N4",
+	"OT5Azg466F9VhdJ54dGzdr5FzLFZZtgD9wpp3WqfWKF1jJ7i8JvQ8fEDqV8heUElckVnWJxoEyj44je+",
+	"0tUEOpb6UId59Glph7nYkzLjEm5LsAx2vT6Ood1ePp8IejtMD/Zb7UnYqZDBTLSd3ccqJ6pjXtL5cQ54",
+	"OK7naxh+TtZIgbaHV+DxB88tugUkEFdEt8X2h1GyRcX+DhnvUXuanR627WiuSZVcxaGzZJWt/N5MWeMU",
+	"yhqDKsz+qXXCoaxOSNcYVkNk2KN7WWXRuqpbM3maVlbJqrSe8vPsPIPlePk3AAD//2P8bPydCAAA",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

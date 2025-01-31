@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -47,22 +48,25 @@ func UserInfoHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"username": username})
 }
 
-// Logout handler (for session-based auth, currently a no-op for JWT)
-func LogoutHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-}
+// Mutex to prevent concurrent map writes
+var activeUsersMutex sync.Mutex
+var activeUsers = make(map[string]bool) // Track logged-in users
 
-// Generate JWT token
-func generateJWT(username string) (string, error) {
-	claims := jwt.MapClaims{
-		"username": username,
-		"exp":      time.Now().Add(time.Hour * 24).Unix(),
+// Get active users
+func GetActiveUsersHandler(w http.ResponseWriter, r *http.Request) {
+	activeUsersMutex.Lock()
+	defer activeUsersMutex.Unlock()
+
+	userList := []string{}
+	for user := range activeUsers {
+		userList = append(userList, user)
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(jwtSecret)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string][]string{"users": userList})
 }
 
-// Authenticate user and return JWT
+// Modify login handler to track logged-in users
 func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	var user User
 	err := json.NewDecoder(r.Body).Decode(&user)
@@ -83,7 +87,50 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Mark user as active
+	activeUsersMutex.Lock()
+	activeUsers[user.Username] = true
+	activeUsersMutex.Unlock()
+
 	json.NewEncoder(w).Encode(map[string]string{"token": token})
+}
+
+// Modify logout handler to remove users from active list
+func LogoutHandler(w http.ResponseWriter, r *http.Request) {
+	tokenString := r.Header.Get("Authorization")
+	if tokenString == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	claims := jwt.MapClaims{}
+	token, err := jwt.ParseWithClaims(tokenString, &claims, func(token *jwt.Token) (interface{}, error) {
+		return jwtSecret, nil
+	})
+
+	if err != nil || !token.Valid {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	username := claims["username"].(string)
+
+	// Remove user from active list
+	activeUsersMutex.Lock()
+	delete(activeUsers, username)
+	activeUsersMutex.Unlock()
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// Generate JWT token
+func generateJWT(username string) (string, error) {
+	claims := jwt.MapClaims{
+		"username": username,
+		"exp":      time.Now().Add(time.Hour * 24).Unix(),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(jwtSecret)
 }
 
 // JWT Middleware for WebSockets

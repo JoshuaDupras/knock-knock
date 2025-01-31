@@ -87,6 +87,7 @@ func StartServer() {
 	mux.HandleFunc("/login", LoginHandler)
 	mux.HandleFunc("/me", UserInfoHandler)
 	mux.HandleFunc("/logout", LogoutHandler)
+	mux.HandleFunc("/users", GetActiveUsersHandler)
 
 	// Protect WebSocket with JWT middleware
 	mux.HandleFunc("/ws", JWTMiddleware(ChatWebSocket))
