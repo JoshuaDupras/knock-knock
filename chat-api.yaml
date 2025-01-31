@@ -1,0 +1,37 @@
+openapi: 3.0.3
+info:
+  title: Chat API
+  description: WebSocket-based chat application
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8080
+
+paths:
+  /ping:
+    get:
+      responses:
+        '200':
+          description: test response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pong'
+  /ws:
+    get:
+      summary: WebSocket connection for real-time chat
+      operationId: chatWebSocket
+      responses:
+        "101":
+          description: Switching Protocols
+components:
+  schemas:
+    # base types
+    Pong:
+      type: object
+      required:
+        - ping
+      properties:
+        ping:
+          type: string
+          example: pong
