@@ -4,36 +4,55 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 	"golang.org/x/crypto/bcrypt"
+
+	"backend/api"
 )
 
 var jwtSecret = []byte("supersecretkey") // Change this to a secure env-based key
 
-// User struct
-type User struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
+var testHash = "$2a$10$bm3n66QHwjr78N1rnyg2tuXeWJfJiJhajtd9yL2V3Y3b9B5ZvZQeW" // bcrypt hashed password: "password"
 
-// Hardcoded user database (replace with DB later)
-var users = map[string]string{
-	"admin": "$2a$10$bm3n66QHwjr78N1rnyg2tuXeWJfJiJhajtd9yL2V3Y3b9B5ZvZQeW", // bcrypt hashed password: "password"
-	"user1": "$2a$10$bm3n66QHwjr78N1rnyg2tuXeWJfJiJhajtd9yL2V3Y3b9B5ZvZQeW", // bcrypt hashed password: "password"
-	"user2": "$2a$10$bm3n66QHwjr78N1rnyg2tuXeWJfJiJhajtd9yL2V3Y3b9B5ZvZQeW", // bcrypt hashed password: "password"
+var users = map[string]api.User{
+    "admin": {
+		Id:           "0",
+		Username:     "admin",
+        PasswordHash: testHash,
+    },
+	"user1": {
+		Id:           "1",
+		Username:     "user1",
+        PasswordHash: testHash,
+    },
+	"user2": {
+		Id:           "2",
+		Username:     "user2",
+        PasswordHash: testHash,
+    },
 }
 
 // Get user info from JWT
 func UserInfoHandler(w http.ResponseWriter, r *http.Request) {
-	tokenString := r.Header.Get("Authorization")
-	if tokenString == "" {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+
+	// Ensure it starts with "Bearer "
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 || parts[0] != "Bearer" {
+		http.Error(w, "Invalid token format", http.StatusUnauthorized)
+		return
+	}
+
+	tokenString := parts[1]
 
 	claims := jwt.MapClaims{}
 	token, err := jwt.ParseWithClaims(tokenString, &claims, func(token *jwt.Token) (interface{}, error) {
@@ -50,51 +69,72 @@ func UserInfoHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // Mutex to prevent concurrent map writes
-var activeUsersMutex sync.Mutex
-var activeUsers = make(map[string]*websocket.Conn) // Stores WebSocket connections
-var activeUsersMap = make(map[string]bool)         // Tracks active users (logged-in)
+var activeUserConnectionsMutex sync.Mutex
+var activeUserConnections = make(map[string]*websocket.Conn) // Stores WebSocket connections
+var activeUserConnectionsMap = make(map[string]bool)         // Tracks active users (logged-in)
 
-// Get active users
-func GetActiveUsersHandler(w http.ResponseWriter, r *http.Request) {
-	activeUsersMutex.Lock()
-	defer activeUsersMutex.Unlock()
+// Get active users (returns a list of User objects)
+func GetactiveUserConnectionsHandler(w http.ResponseWriter, r *http.Request) {
+	activeUserConnectionsMutex.Lock()
+	defer activeUserConnectionsMutex.Unlock()
 
-	userList := []string{}
-	for user := range activeUsersMap { // Use activeUsersMap to track logged-in users
-		userList = append(userList, user)
+	users := []api.User{}
+	for username := range activeUserConnections {
+		users = append(users, api.User{Id: username, Username: username}) // Placeholder ID
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string][]string{"users": userList})
+	json.NewEncoder(w).Encode(map[string][]api.User{"users": users})
 }
 
-// Modify login handler to track logged-in users
 func LoginHandler(w http.ResponseWriter, r *http.Request) {
-	var user User
-	err := json.NewDecoder(r.Body).Decode(&user)
+    if r.Method != http.MethodPost {
+        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+        return
+    }
+
+    var req api.LoginRequest
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        http.Error(w, "Invalid request", http.StatusBadRequest)
+        return
+    }
+
+    user, exists := users[req.Username]
+    if !exists {
+        http.Error(w, "Invalid username or password", http.StatusUnauthorized)
+        return
+    }
+
+    if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.PlaintextPassword)); err != nil {
+        http.Error(w, "Invalid username or password", http.StatusUnauthorized)
+        return
+    }
+
+    token, err := generateJWT(req.Username)
+    if err != nil {
+        http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+        return
+    }
+
+    res := api.LoginResponse{Token: token}
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(res)
+}
+
+
+// HashPassword securely hashes a password
+func HashPassword(password string) (string, error) {
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
-		return
+		return "", err
 	}
+	return string(hashedPassword), nil
+}
 
-	hashedPassword, exists := users[user.Username]
-	if !exists || bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(user.Password)) != nil {
-		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
-		return
-	}
-
-	token, err := generateJWT(user.Username)
-	if err != nil {
-		http.Error(w, "Failed to generate token", http.StatusInternalServerError)
-		return
-	}
-
-	// Mark user as active
-	activeUsersMutex.Lock()
-	activeUsersMap[user.Username] = true // ✅ Correctly track logged-in users
-	activeUsersMutex.Unlock()
-
-	json.NewEncoder(w).Encode(map[string]string{"token": token})
+// CheckPasswordHash compares a plain text password with a hashed password
+func CheckPasswordHash(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
 }
 
 
@@ -116,12 +156,16 @@ func LogoutHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	username := claims["username"].(string)
-
+	username, ok := claims["username"].(string)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	
 	// Remove user from active list
-	activeUsersMutex.Lock()
-	delete(activeUsers, username)
-	activeUsersMutex.Unlock()
+	activeUserConnectionsMutex.Lock()
+	delete(activeUserConnections, username)
+	activeUserConnectionsMutex.Unlock()
 
 	w.WriteHeader(http.StatusOK)
 }

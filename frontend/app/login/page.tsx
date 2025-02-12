@@ -5,16 +5,16 @@ import { useRouter } from "next/navigation";
 
 const Login = () => {
   const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
+  const [plaintextPassword, setPassword] = useState("");
   const [error, setError] = useState("");
   const router = useRouter();
 
   const handleLogin = async () => {
     setError("");
-    const response = await fetch("http://localhost:8080/login", {
+    const response = await fetch("http://172.22.223.245:8080/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, plaintextPassword }),
     });
 
     if (!response.ok) {
@@ -41,7 +41,7 @@ const Login = () => {
         type="password"
         placeholder="Password"
         className="p-2 border rounded-lg mb-2 w-64 text-black bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-        value={password}
+        value={plaintextPassword}
         onChange={(e) => setPassword(e.target.value)}
       />
       <button

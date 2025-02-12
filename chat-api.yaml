@@ -59,7 +59,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UserInfo'
+                $ref: '#/components/schemas/User'
   /logout:
     post:
       summary: Logs out a user (clears session)
@@ -91,31 +91,48 @@ components:
   schemas:
     Pong:
       type: object
+      required:
+        - ping
       properties:
         ping:
           type: string
           example: pong
     LoginRequest:
       type: object
+      required:
+        - username
+        - plaintextPassword
       properties:
         username:
           type: string
-        password:
+        plaintextPassword:
           type: string
     LoginResponse:
       type: object
+      required:
+        - token
       properties:
         token:
           type: string
-    UserInfo:
+    User:
       type: object
+      required:
+        - id
+        - username
+        - passwordHash
       properties:
+        id:
+          type: string
         username:
+          type: string
+        passwordHash:
           type: string
     ActiveUsers:
       type: object
+      required:
+        - users
       properties:
         users:
           type: array
           items:
-            type: string
+            $ref: '#/components/schemas/User'

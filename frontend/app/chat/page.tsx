@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-const WS_URL = "ws://localhost:8080/ws";
+const API_URL = "http://172.22.223.245:8080";
+const WS_URL = "ws://172.22.223.245:8080/ws";
 
 const Chat: React.FC = () => {
   const [messages, setMessages] = useState<{ from: string; message: string }[]>([]);
@@ -18,56 +19,50 @@ const Chat: React.FC = () => {
     const token = localStorage.getItem("token");
     if (!token) {
       alert("Not authenticated! Redirecting to login...");
-      window.location.href = "/login";
+      router.push("/login");
       return;
     }
 
-    // Fetch the logged-in user's info
-    fetch("http://localhost:8080/me", {
-      headers: { Authorization: token },
+    fetch(`${API_URL}/me`, {
+      headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => res.json())
       .then((data) => setUsername(data.username))
       .catch(() => {
         alert("Session expired. Please log in again.");
         localStorage.removeItem("token");
-        window.location.href = "/login";
+        router.push("/login");
       });
 
-    // Fetch active users
     const fetchUsers = () => {
-      fetch("http://localhost:8080/users", {
-        headers: { Authorization: token },
+      fetch(`${API_URL}/users`, {
+        headers: { Authorization: `Bearer ${token}` },
       })
         .then((res) => res.json())
-        .then((data) => setUsers(data.users));
+        .then((data) => setUsers(data.users.map((user: any) => user.username)));
     };
 
     fetchUsers();
-    const interval = setInterval(fetchUsers, 5000); // Refresh every 5s
+    const interval = setInterval(fetchUsers, 5000);
 
     const socket = new WebSocket(`${WS_URL}?token=${token}`);
     socket.onopen = () => console.log("WebSocket connected");
-
     socket.onmessage = (event) => {
       const data = JSON.parse(event.data);
       setMessages((prev) => [...prev, data]);
     };
-
     socket.onclose = () => console.log("WebSocket disconnected");
-
     setWs(socket);
 
     return () => {
       socket.close();
       clearInterval(interval);
     };
-  }, []);
+  }, [router]);
 
   const sendMessage = () => {
     if (ws && input.trim() && selectedUser) {
       const messageData = JSON.stringify({ to: selectedUser, message: input });
-      console.log("Sending message:", messageData);
       ws.send(messageData);
       setMessages((prev) => [...prev, { from: "You", message: input }]);
       setInput("");
@@ -75,14 +70,16 @@ const Chat: React.FC = () => {
       console.log("WebSocket not connected or no recipient selected");
     }
   };
-  
 
   const handleLogout = () => {
-    localStorage.removeItem("token");
-    fetch("http://localhost:8080/logout", {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    fetch(`${API_URL}/logout`, {
       method: "POST",
-      headers: { Authorization: localStorage.getItem("token") || "" },
+      headers: { Authorization: `Bearer ${token}` },
     }).then(() => {
+      localStorage.removeItem("token");
       router.push("/login");
     });
   };

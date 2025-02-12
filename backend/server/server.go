@@ -47,15 +47,15 @@ func ChatWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Store WebSocket connection for messaging
 	wsMutex.Lock()
-	activeUsers[username] = conn
+	activeUserConnections[username] = conn
 	wsMutex.Unlock()
 
 	log.Println(username, "connected to WebSocket")
 
 	defer func() {
 		wsMutex.Lock()
-		delete(activeUsers, username) // Remove WebSocket connection on disconnect
-		delete(activeUsersMap, username) // Remove from active users list
+		delete(activeUserConnections, username) // Remove WebSocket connection on disconnect
+		delete(activeUserConnectionsMap, username) // Remove from active users list
 		wsMutex.Unlock()
 		conn.Close()
 		log.Println(username, "disconnected from WebSocket")
@@ -74,7 +74,7 @@ func ChatWebSocket(w http.ResponseWriter, r *http.Request) {
 
 		// Send private message if recipient exists
 		wsMutex.Lock()
-		if recipientConn, exists := activeUsers[recipient]; exists {
+		if recipientConn, exists := activeUserConnections[recipient]; exists {
 			recipientConn.WriteJSON(map[string]string{"from": username, "message": message})
 		}
 		wsMutex.Unlock()
@@ -118,7 +118,7 @@ func StartServer() {
 	mux.HandleFunc("/login", LoginHandler)
 	mux.HandleFunc("/me", UserInfoHandler)
 	mux.HandleFunc("/logout", LogoutHandler)
-	mux.HandleFunc("/users", GetActiveUsersHandler)
+	mux.HandleFunc("/users", GetactiveUserConnectionsHandler)
 
 	// Protect WebSocket with JWT middleware
 	mux.HandleFunc("/ws", JWTMiddleware(ChatWebSocket))

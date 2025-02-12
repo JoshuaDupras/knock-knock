@@ -28,28 +28,30 @@ const (
 
 // ActiveUsers defines model for ActiveUsers.
 type ActiveUsers struct {
-	Users *[]string `json:"users,omitempty"`
+	Users []User `json:"users"`
 }
 
 // LoginRequest defines model for LoginRequest.
 type LoginRequest struct {
-	Password *string `json:"password,omitempty"`
-	Username *string `json:"username,omitempty"`
+	PlaintextPassword string `json:"plaintextPassword"`
+	Username          string `json:"username"`
 }
 
 // LoginResponse defines model for LoginResponse.
 type LoginResponse struct {
-	Token *string `json:"token,omitempty"`
+	Token string `json:"token"`
 }
 
 // Pong defines model for Pong.
 type Pong struct {
-	Ping *string `json:"ping,omitempty"`
+	Ping string `json:"ping"`
 }
 
-// UserInfo defines model for UserInfo.
-type UserInfo struct {
-	Username *string `json:"username,omitempty"`
+// User defines model for User.
+type User struct {
+	Id           string `json:"id"`
+	PasswordHash string `json:"passwordHash"`
+	Username     string `json:"username"`
 }
 
 // ChatWebSocketParams defines parameters for ChatWebSocket.
@@ -541,7 +543,7 @@ func (r LogoutUserResponse) StatusCode() int {
 type GetUserInfoResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *UserInfo
+	JSON200      *User
 }
 
 // Status returns HTTPResponse.Status
@@ -744,7 +746,7 @@ func ParseGetUserInfoResponse(rsp *http.Response) (*GetUserInfoResponse, error) 
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest UserInfo
+		var dest User
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -1109,18 +1111,19 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
+	"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",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file
