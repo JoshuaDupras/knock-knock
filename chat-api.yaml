@@ -17,19 +17,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Pong'
-  /ws:
-    get:
-      summary: WebSocket connection for real-time chat
-      operationId: chatWebSocket
-      parameters:
-        - name: token
-          in: query
-          required: true
-          schema:
-            type: string
-      responses:
-        "101":
-          description: Switching Protocols
   /login:
     post:
       summary: Logs in a user and returns a JWT token
@@ -69,19 +56,36 @@ paths:
       responses:
         "200":
           description: Logout successful
+  /ws:
+    get:
+      summary: WebSocket connection for real-time chat and user tracking
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "101":
+          description: Switching Protocols
   /users:
     get:
-      summary: Get list of active users
-      operationId: getActiveUsers
-      security:
-        - BearerAuth: []
+      summary: Get real-time list of active users
       responses:
         "200":
           description: List of active users
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ActiveUsers'
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      type: string
+                  count:
+                    type: integer
+
 components:
   securitySchemes:
     BearerAuth:

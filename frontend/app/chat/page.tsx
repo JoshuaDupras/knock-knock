@@ -2,6 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { AppBar, Box, Button, Container, IconButton, List, ListItem, Paper, TextField, Toolbar, Typography } from "@mui/material";
+import ExitToAppIcon from "@mui/icons-material/ExitToApp";
+import SendIcon from "@mui/icons-material/Send";
 
 const API_URL = "http://172.22.223.245:8080";
 const WS_URL = "ws://172.22.223.245:8080/ws";
@@ -10,8 +13,10 @@ const Chat: React.FC = () => {
   const [messages, setMessages] = useState<{ from: string; message: string }[]>([]);
   const [input, setInput] = useState<string>("");
   const [ws, setWs] = useState<WebSocket | null>(null);
-  const [username, setUsername] = useState<string>("");
+  const [username, setUsername] = useState<string | null>(null);
+  const [allUsers, setAllUsers] = useState<string[]>([]);
   const [users, setUsers] = useState<string[]>([]);
+  const [userCount, setUserCount] = useState<number>(0);
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const router = useRouter();
 
@@ -27,38 +32,43 @@ const Chat: React.FC = () => {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => res.json())
-      .then((data) => setUsername(data.username))
+      .then((data) => {
+        setUsername(data.username);
+      })
       .catch(() => {
         alert("Session expired. Please log in again.");
         localStorage.removeItem("token");
         router.push("/login");
       });
 
-    const fetchUsers = () => {
-      fetch(`${API_URL}/users`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-        .then((res) => res.json())
-        .then((data) => setUsers(data.users.map((user: any) => user.username)));
-    };
-
-    fetchUsers();
-    const interval = setInterval(fetchUsers, 5000);
-
     const socket = new WebSocket(`${WS_URL}?token=${token}`);
     socket.onopen = () => console.log("WebSocket connected");
+
     socket.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      setMessages((prev) => [...prev, data]);
+
+      if (data.type === "userList") {
+        setAllUsers(data.users);
+      } else {
+        setMessages((prev) => [...prev, data]);
+      }
     };
+
     socket.onclose = () => console.log("WebSocket disconnected");
     setWs(socket);
 
     return () => {
       socket.close();
-      clearInterval(interval);
     };
   }, [router]);
+
+  useEffect(() => {
+    if (username) {
+      const filteredUsers = allUsers.filter((user) => user !== username);
+      setUsers(filteredUsers);
+      setUserCount(allUsers.length);
+    }
+  }, [username, allUsers]);
 
   const sendMessage = () => {
     if (ws && input.trim() && selectedUser) {
@@ -66,8 +76,6 @@ const Chat: React.FC = () => {
       ws.send(messageData);
       setMessages((prev) => [...prev, { from: "You", message: input }]);
       setInput("");
-    } else {
-      console.log("WebSocket not connected or no recipient selected");
     }
   };
 
@@ -85,46 +93,89 @@ const Chat: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col items-center w-full h-screen p-4">
-      <div className="w-full max-w-lg flex justify-between items-center mb-4">
-        <span className="text-lg font-bold">Logged in as: {username}</span>
-        <button className="p-2 bg-red-500 text-white rounded-lg" onClick={handleLogout}>
-          Log Out
-        </button>
-      </div>
-      <div className="w-full max-w-lg border p-4 rounded-lg shadow-md h-96 overflow-y-auto">
-        <h3 className="text-lg font-bold mb-2">Active Users</h3>
-        <ul className="mb-4">
-          {users.map((user, index) => (
-            <li
+    <Box sx={{ bgcolor: "#121212", color: "white", height: "100vh", display: "flex", flexDirection: "column", alignItems: "center" }}>
+      {/* Header Bar */}
+      <AppBar position="static" sx={{ bgcolor: "#1e1e1e" }}>
+        <Toolbar sx={{ display: "flex", justifyContent: "space-between" }}>
+          <Typography variant="h6">Logged in as: {username}</Typography>
+          <Typography variant="h6">Online: {userCount}</Typography>
+          <IconButton color="inherit" onClick={handleLogout}>
+            <ExitToAppIcon />
+          </IconButton>
+        </Toolbar>
+      </AppBar>
+
+      {/* Content */}
+      <Container maxWidth="sm" sx={{ flexGrow: 1, mt: 2 }}>
+        {/* Active Users List */}
+        <Paper sx={{ bgcolor: "#1e1e1e", p: 2, mb: 2, borderRadius: 2 }}>
+          <Typography variant="h6">Other Users ({userCount-1})</Typography>
+          <List>
+            {users.map((user, index) => (
+              <ListItem
+                key={index}
+                sx={{
+                  bgcolor: selectedUser === user ? "#2196F3" : "transparent",
+                  color: selectedUser === user ? "white" : "gray",
+                  cursor: "pointer",
+                  "&:hover": { bgcolor: "#333" },
+                  p: 1,
+                  borderRadius: 1,
+                }}
+                onClick={() => setSelectedUser(user)}
+              >
+                {user}
+              </ListItem>
+            ))}
+          </List>
+        </Paper>
+
+        {/* Chat Messages */}
+        <Paper sx={{ bgcolor: "#1e1e1e", p: 2, mb: 2, height: "300px", overflowY: "auto", borderRadius: 2 }}>
+          <Typography variant="h6">Chat</Typography>
+          {messages.map((msg, index) => (
+            <Box
               key={index}
-              className={`p-1 cursor-pointer ${selectedUser === user ? "bg-blue-300" : "hover:bg-gray-200"}`}
-              onClick={() => setSelectedUser(user)}
+              sx={{
+                bgcolor: msg.from === "You" ? "#4CAF50" : "#333",
+                color: "white",
+                p: 1,
+                m: 1,
+                borderRadius: 2,
+                alignSelf: msg.from === "You" ? "flex-end" : "flex-start",
+                textAlign: msg.from === "You" ? "right" : "left",
+              }}
             >
-              {user}
-            </li>
+              <Typography variant="body2" sx={{ fontWeight: "bold" }}>{msg.from}:</Typography>
+              <Typography variant="body1">{msg.message}</Typography>
+            </Box>
           ))}
-        </ul>
-        <h3 className="text-lg font-bold mb-2">Chat</h3>
-        {messages.map((msg, index) => (
-          <div key={index} className="p-2 border-b text-black">
-            <strong>{msg.from}: </strong> {msg.message}
-          </div>
-        ))}
-      </div>
-      <div className="flex mt-4 w-full max-w-lg">
-        <input
-          type="text"
-          className="flex-1 p-2 border rounded-l-lg text-black bg-white"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyPress={(e) => e.key === "Enter" && sendMessage()}
-        />
-        <button className="p-2 bg-blue-500 text-white rounded-r-lg" onClick={sendMessage}>
-          Send
-        </button>
-      </div>
-    </div>
+        </Paper>
+
+        {/* Chat Input */}
+        <Box sx={{ display: "flex", alignItems: "center" }}>
+          <TextField
+            fullWidth
+            variant="outlined"
+            sx={{
+              bgcolor: "white",
+              borderRadius: "4px",
+              input: { color: "black" },
+            }}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyPress={(e) => e.key === "Enter" && sendMessage()}
+          />
+          <Button
+            variant="contained"
+            sx={{ bgcolor: "#2196F3", color: "white", ml: 1, p: 2 }}
+            onClick={sendMessage}
+          >
+            <SendIcon />
+          </Button>
+        </Box>
+      </Container>
+    </Box>
   );
 };
 

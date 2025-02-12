@@ -71,7 +71,6 @@ func UserInfoHandler(w http.ResponseWriter, r *http.Request) {
 // Mutex to prevent concurrent map writes
 var activeUserConnectionsMutex sync.Mutex
 var activeUserConnections = make(map[string]*websocket.Conn) // Stores WebSocket connections
-var activeUserConnectionsMap = make(map[string]bool)         // Tracks active users (logged-in)
 
 // Get active users (returns a list of User objects)
 func GetactiveUserConnectionsHandler(w http.ResponseWriter, r *http.Request) {

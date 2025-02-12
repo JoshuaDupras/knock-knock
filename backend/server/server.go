@@ -19,8 +19,9 @@ var upgrader = websocket.Upgrader{
 type ChatServer struct{}
 
 var wsMutex sync.Mutex
+var activeUsers = make(map[string]bool)                      // Tracks active users
 
-// Handle WebSocket connection
+// WebSocket Handler
 func ChatWebSocket(w http.ResponseWriter, r *http.Request) {
 	tokenString := r.URL.Query().Get("token")
 	if tokenString == "" {
@@ -37,7 +38,11 @@ func ChatWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	username := claims["username"].(string)
+	username, ok := claims["username"].(string)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -45,22 +50,32 @@ func ChatWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Store WebSocket connection for messaging
+	// Store WebSocket connection
 	wsMutex.Lock()
 	activeUserConnections[username] = conn
+	activeUsers[username] = true
 	wsMutex.Unlock()
 
 	log.Println(username, "connected to WebSocket")
 
+	// Broadcast active users
+	broadcastUserList()
+
 	defer func() {
+		// Cleanup on disconnect
 		wsMutex.Lock()
-		delete(activeUserConnections, username) // Remove WebSocket connection on disconnect
-		delete(activeUserConnectionsMap, username) // Remove from active users list
+		delete(activeUserConnections, username)
+		delete(activeUsers, username)
 		wsMutex.Unlock()
+
 		conn.Close()
 		log.Println(username, "disconnected from WebSocket")
+
+		// Broadcast updated user list
+		broadcastUserList()
 	}()
 
+	// Listen for incoming messages
 	for {
 		var msg map[string]string
 		err := conn.ReadJSON(&msg)
@@ -81,9 +96,29 @@ func ChatWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// Broadcast active users to all clients
+func broadcastUserList() {
+	wsMutex.Lock()
+	defer wsMutex.Unlock()
 
+	users := []string{}
+	for user := range activeUsers {
+		users = append(users, user)
+	}
 
-// Ping responds with a JSON "pong"
+	message, _ := json.Marshal(map[string]interface{}{
+		"type":  "userList",
+		"users": users,
+		"count": len(users),
+	})
+
+	// Send update to all clients
+	for _, conn := range activeUserConnections {
+		conn.WriteMessage(websocket.TextMessage, message)
+	}
+}
+
+// Ping Endpoint
 func GetPing(w http.ResponseWriter, r *http.Request) {
 	response := map[string]string{"ping": "pong"}
 	w.Header().Set("Content-Type", "application/json")
@@ -93,11 +128,10 @@ func GetPing(w http.ResponseWriter, r *http.Request) {
 // CORS Middleware
 func enableCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*") // Allow all origins
+		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
-		// Handle preflight request
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -118,15 +152,13 @@ func StartServer() {
 	mux.HandleFunc("/login", LoginHandler)
 	mux.HandleFunc("/me", UserInfoHandler)
 	mux.HandleFunc("/logout", LogoutHandler)
-	mux.HandleFunc("/users", GetactiveUserConnectionsHandler)
 
-	// Protect WebSocket with JWT middleware
-	mux.HandleFunc("/ws", JWTMiddleware(ChatWebSocket))
+	// WebSocket endpoint
+	mux.HandleFunc("/ws", ChatWebSocket)
 
-	// Wrap CORS middleware around handlers
+	// Wrap CORS middleware
 	handler := enableCORS(mux)
 
-	// Start the HTTP + WebSocket server
 	log.Println("Server running on http://0.0.0.0:8080 (HTTP + WebSockets)")
 	log.Fatal(http.ListenAndServe("0.0.0.0:8080", handler))
 }
