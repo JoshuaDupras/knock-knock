@@ -1,8 +1,10 @@
 openapi: 3.0.3
 info:
   title: Chat API
-  description: WebSocket-based chat application with authentication
-  version: 1.0.0
+  version: 1.0.1
+  description: >
+    WebSocket chat service with anonymous pairing, skip & timer rotation,
+    and optional account registration.
 
 servers:
   - url: http://localhost:8080
@@ -11,54 +13,106 @@ paths:
   /ping:
     get:
       responses:
-        '200':
+        "200":
           description: ping response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Pong'
-  /login:
+                $ref: "#/components/schemas/Pong"
+
+  /session/anonymous:
     post:
-      summary: Logs in a user and returns a JWT token
-      operationId: loginUser
+      summary: Start an anonymous 5‑minute session and join the waiting queue
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnonymousSessionRequest"
+      responses:
+        "201":
+          description: Anonymous session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnonymousSessionResponse"
+
+  /session/skip:
+    post:
+      summary: Leave the current conversation and rotate immediately
+      security:
+        - BearerAuth: []
+      responses:
+        "204":
+          description: Rotated successfully
+        "429":
+          description: Skip called too quickly
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /account/register:
+    post:
+      summary: Create a persistent account (username must be unique)
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/LoginRequest'
+              $ref: "#/components/schemas/RegisterRequest"
       responses:
-        "200":
-          description: Successful login
+        "201":
+          description: Account created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LoginResponse'
+                $ref: "#/components/schemas/AuthResponse"
+        "409":
+          description: Username already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /login:
+    post:
+      summary: Log in with an existing account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Bad credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /me:
     get:
-      summary: Gets the logged-in user's info
-      operationId: getUserInfo
+      summary: Return the current user profile
       security:
         - BearerAuth: []
       responses:
         "200":
-          description: User info
+          description: Profile
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/User'
-  /logout:
-    post:
-      summary: Logs out a user (clears session)
-      operationId: logoutUser
-      security:
-        - BearerAuth: []
-      responses:
-        "200":
-          description: Logout successful
-  /ws:
+                $ref: "#/components/schemas/User"
+
+  /ws/chat:
     get:
-      summary: WebSocket connection for real-time chat and user tracking
+      summary: WebSocket for real‑time chat
       parameters:
         - name: token
           in: query
@@ -67,24 +121,7 @@ paths:
             type: string
       responses:
         "101":
-          description: Switching Protocols
-  /users:
-    get:
-      summary: Get real-time list of active users
-      responses:
-        "200":
-          description: List of active users
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  users:
-                    type: array
-                    items:
-                      type: string
-                  count:
-                    type: integer
+          description: Upgraded to WebSocket
 
 components:
   securitySchemes:
@@ -92,51 +129,118 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+
   schemas:
+    # ─── Public / Request‑Response models ──────────────────────────
     Pong:
       type: object
-      required:
-        - ping
+      required: [ping]
       properties:
         ping:
           type: string
           example: pong
-    LoginRequest:
+
+    AnonymousSessionRequest:
       type: object
-      required:
-        - username
-        - plaintextPassword
+      required: [displayName]
+      properties:
+        displayName:
+          type: string
+
+    AnonymousSessionResponse:
+      type: object
+      required: [token, websocketUrl, expiresInSeconds]
+      properties:
+        conversationId:
+          type: string
+        token:
+          type: string
+        websocketUrl:
+          type: string
+        expiresInSeconds:
+          type: integer
+          format: int32
+
+    RegisterRequest:
+      type: object
+      required: [username]
       properties:
         username:
           type: string
-        plaintextPassword:
+        password:
           type: string
-    LoginResponse:
+
+    LoginRequest:
       type: object
-      required:
-        - token
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+
+    AuthResponse:
+      type: object
+      required: [token]
       properties:
         token:
           type: string
+
     User:
+      description: Public view of an account
       type: object
-      required:
-        - id
-        - username
-        - passwordHash
+      required: [id, username]
       properties:
         id:
           type: string
         username:
           type: string
-        passwordHash:
-          type: string
-    ActiveUsers:
+
+    Error:
       type: object
-      required:
-        - users
+      required: [error]
       properties:
-        users:
+        error:
+          type: string
+        details:
+          type: string
+          nullable: true
+
+    # ─── Internal runtime helpers (not in any REST path) ────────────
+    InternalUser:
+      description: Internal user struct generated for server logic
+      x-go-type: user
+      x-go-type-import: example.com/ephemeral/server
+      type: object
+      properties:
+        id:       { type: string }
+        username: { type: string }
+        lastSkipTime:
+          type: string
+          format: date-time
+          x-go-name: LastSkipTime
+        conn:
+          description: WebSocket connection (ignored in JSON)
+          type: string
+          x-go-type: "*websocket.Conn"
+          x-go-type-import: github.com/gorilla/websocket
+          x-oapi-codegen-extra-tags:
+            json: '"-"'
+
+    Conversation:
+      description: Runtime pairing room (two participants for now)
+      x-go-type: conversation
+      x-go-type-import: example.com/ephemeral/server
+      type: object
+      properties:
+        id: { type: string }
+        participants:
           type: array
-          items:
-            $ref: '#/components/schemas/User'
+          items: { $ref: "#/components/schemas/InternalUser" }
+        timer:
+          description: Round timer (omitted from JSON)
+          type: string
+          x-go-type: "*time.Timer"
+          x-go-type-import: time
+          x-oapi-codegen-extra-tags:
+            json: '"-"'

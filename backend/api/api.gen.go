@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/oapi-codegen/runtime"
@@ -26,41 +27,87 @@ const (
 	BearerAuthScopes = "BearerAuth.Scopes"
 )
 
-// ActiveUsers defines model for ActiveUsers.
-type ActiveUsers struct {
-	Users []User `json:"users"`
+// Defines values for ChatMessageType.
+const (
+	Chat ChatMessageType = "chat"
+)
+
+// AnonymousSessionRequest defines model for AnonymousSessionRequest.
+type AnonymousSessionRequest struct {
+	DisplayName string `json:"displayName"`
+}
+
+// AnonymousSessionResponse defines model for AnonymousSessionResponse.
+type AnonymousSessionResponse struct {
+	// ConversationId ID of the conversation the user is placed into.
+	ConversationId   string `json:"conversationId"`
+	ExpiresInSeconds int    `json:"expiresInSeconds"`
+
+	// Token Short‑lived JWT (e.g. 5 minutes)
+	Token        string `json:"token"`
+	WebsocketUrl string `json:"websocketUrl"`
+}
+
+// AuthResponse defines model for AuthResponse.
+type AuthResponse struct {
+	// Token Long‑lived JWT (24 h by default)
+	Token string `json:"token"`
+}
+
+// ChatMessage Generic message format exchanged over WebSocket.
+type ChatMessage struct {
+	ConversationId string          `json:"conversationId"`
+	Message        string          `json:"message"`
+	Timestamp      time.Time       `json:"timestamp"`
+	Type           ChatMessageType `json:"type"`
+}
+
+// ChatMessageType defines model for ChatMessage.Type.
+type ChatMessageType string
+
+// Error defines model for Error.
+type Error struct {
+	// Details Optional machine‑readable code or info
+	Details *string `json:"details,omitempty"`
+	Error   string  `json:"error"`
 }
 
 // LoginRequest defines model for LoginRequest.
 type LoginRequest struct {
-	PlaintextPassword string `json:"plaintextPassword"`
-	Username          string `json:"username"`
-}
-
-// LoginResponse defines model for LoginResponse.
-type LoginResponse struct {
-	Token string `json:"token"`
+	Password string `json:"password"`
+	Username string `json:"username"`
 }
 
 // Pong defines model for Pong.
 type Pong struct {
-	Ping string `json:"ping"`
+	Pong string `json:"pong"`
+}
+
+// RegisterRequest defines model for RegisterRequest.
+type RegisterRequest struct {
+	Password string `json:"password"`
+	Username string `json:"username"`
 }
 
 // User defines model for User.
 type User struct {
-	Id           string `json:"id"`
-	PasswordHash string `json:"passwordHash"`
-	Username     string `json:"username"`
+	Id       string `json:"id"`
+	Username string `json:"username"`
 }
 
-// ChatWebSocketParams defines parameters for ChatWebSocket.
-type ChatWebSocketParams struct {
+// GetWsChatParams defines parameters for GetWsChat.
+type GetWsChatParams struct {
 	Token string `form:"token" json:"token"`
 }
 
-// LoginUserJSONRequestBody defines body for LoginUser for application/json ContentType.
-type LoginUserJSONRequestBody = LoginRequest
+// PostAccountRegisterJSONRequestBody defines body for PostAccountRegister for application/json ContentType.
+type PostAccountRegisterJSONRequestBody = RegisterRequest
+
+// PostLoginJSONRequestBody defines body for PostLogin for application/json ContentType.
+type PostLoginJSONRequestBody = LoginRequest
+
+// PostSessionAnonymousJSONRequestBody defines body for PostSessionAnonymous for application/json ContentType.
+type PostSessionAnonymousJSONRequestBody = AnonymousSessionRequest
 
 // RequestEditorFn  is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -135,29 +182,36 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
-	// LoginUserWithBody request with any body
-	LoginUserWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// PostAccountRegisterWithBody request with any body
+	PostAccountRegisterWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	LoginUser(ctx context.Context, body LoginUserJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	PostAccountRegister(ctx context.Context, body PostAccountRegisterJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// LogoutUser request
-	LogoutUser(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// PostLoginWithBody request with any body
+	PostLoginWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetUserInfo request
-	GetUserInfo(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+	PostLogin(ctx context.Context, body PostLoginJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetMe request
+	GetMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetPing request
 	GetPing(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetActiveUsers request
-	GetActiveUsers(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// PostSessionAnonymousWithBody request with any body
+	PostSessionAnonymousWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ChatWebSocket request
-	ChatWebSocket(ctx context.Context, params *ChatWebSocketParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+	PostSessionAnonymous(ctx context.Context, body PostSessionAnonymousJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostSessionSkip request
+	PostSessionSkip(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetWsChat request
+	GetWsChat(ctx context.Context, params *GetWsChatParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
-func (c *Client) LoginUserWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewLoginUserRequestWithBody(c.Server, contentType, body)
+func (c *Client) PostAccountRegisterWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostAccountRegisterRequestWithBody(c.Server, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -168,8 +222,8 @@ func (c *Client) LoginUserWithBody(ctx context.Context, contentType string, body
 	return c.Client.Do(req)
 }
 
-func (c *Client) LoginUser(ctx context.Context, body LoginUserJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewLoginUserRequest(c.Server, body)
+func (c *Client) PostAccountRegister(ctx context.Context, body PostAccountRegisterJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostAccountRegisterRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -180,8 +234,8 @@ func (c *Client) LoginUser(ctx context.Context, body LoginUserJSONRequestBody, r
 	return c.Client.Do(req)
 }
 
-func (c *Client) LogoutUser(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewLogoutUserRequest(c.Server)
+func (c *Client) PostLoginWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostLoginRequestWithBody(c.Server, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -192,8 +246,20 @@ func (c *Client) LogoutUser(ctx context.Context, reqEditors ...RequestEditorFn) 
 	return c.Client.Do(req)
 }
 
-func (c *Client) GetUserInfo(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetUserInfoRequest(c.Server)
+func (c *Client) PostLogin(ctx context.Context, body PostLoginJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostLoginRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetMeRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -216,8 +282,8 @@ func (c *Client) GetPing(ctx context.Context, reqEditors ...RequestEditorFn) (*h
 	return c.Client.Do(req)
 }
 
-func (c *Client) GetActiveUsers(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetActiveUsersRequest(c.Server)
+func (c *Client) PostSessionAnonymousWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostSessionAnonymousRequestWithBody(c.Server, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -228,8 +294,8 @@ func (c *Client) GetActiveUsers(ctx context.Context, reqEditors ...RequestEditor
 	return c.Client.Do(req)
 }
 
-func (c *Client) ChatWebSocket(ctx context.Context, params *ChatWebSocketParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewChatWebSocketRequest(c.Server, params)
+func (c *Client) PostSessionAnonymous(ctx context.Context, body PostSessionAnonymousJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostSessionAnonymousRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -240,19 +306,83 @@ func (c *Client) ChatWebSocket(ctx context.Context, params *ChatWebSocketParams,
 	return c.Client.Do(req)
 }
 
-// NewLoginUserRequest calls the generic LoginUser builder with application/json body
-func NewLoginUserRequest(server string, body LoginUserJSONRequestBody) (*http.Request, error) {
+func (c *Client) PostSessionSkip(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostSessionSkipRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetWsChat(ctx context.Context, params *GetWsChatParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetWsChatRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// NewPostAccountRegisterRequest calls the generic PostAccountRegister builder with application/json body
+func NewPostAccountRegisterRequest(server string, body PostAccountRegisterJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewLoginUserRequestWithBody(server, "application/json", bodyReader)
+	return NewPostAccountRegisterRequestWithBody(server, "application/json", bodyReader)
 }
 
-// NewLoginUserRequestWithBody generates requests for LoginUser with any type of body
-func NewLoginUserRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+// NewPostAccountRegisterRequestWithBody generates requests for PostAccountRegister with any type of body
+func NewPostAccountRegisterRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/account/register")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewPostLoginRequest calls the generic PostLogin builder with application/json body
+func NewPostLoginRequest(server string, body PostLoginJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostLoginRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPostLoginRequestWithBody generates requests for PostLogin with any type of body
+func NewPostLoginRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -280,35 +410,8 @@ func NewLoginUserRequestWithBody(server string, contentType string, body io.Read
 	return req, nil
 }
 
-// NewLogoutUserRequest generates requests for LogoutUser
-func NewLogoutUserRequest(server string) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/logout")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("POST", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewGetUserInfoRequest generates requests for GetUserInfo
-func NewGetUserInfoRequest(server string) (*http.Request, error) {
+// NewGetMeRequest generates requests for GetMe
+func NewGetMeRequest(server string) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -361,8 +464,19 @@ func NewGetPingRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
-// NewGetActiveUsersRequest generates requests for GetActiveUsers
-func NewGetActiveUsersRequest(server string) (*http.Request, error) {
+// NewPostSessionAnonymousRequest calls the generic PostSessionAnonymous builder with application/json body
+func NewPostSessionAnonymousRequest(server string, body PostSessionAnonymousJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostSessionAnonymousRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPostSessionAnonymousRequestWithBody generates requests for PostSessionAnonymous with any type of body
+func NewPostSessionAnonymousRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -370,7 +484,7 @@ func NewGetActiveUsersRequest(server string) (*http.Request, error) {
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/users")
+	operationPath := fmt.Sprintf("/session/anonymous")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -380,16 +494,18 @@ func NewGetActiveUsersRequest(server string) (*http.Request, error) {
 		return nil, err
 	}
 
-	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	req, err := http.NewRequest("POST", queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
 
+	req.Header.Add("Content-Type", contentType)
+
 	return req, nil
 }
 
-// NewChatWebSocketRequest generates requests for ChatWebSocket
-func NewChatWebSocketRequest(server string, params *ChatWebSocketParams) (*http.Request, error) {
+// NewPostSessionSkipRequest generates requests for PostSessionSkip
+func NewPostSessionSkipRequest(server string) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -397,7 +513,34 @@ func NewChatWebSocketRequest(server string, params *ChatWebSocketParams) (*http.
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/ws")
+	operationPath := fmt.Sprintf("/session/skip")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetWsChatRequest generates requests for GetWsChat
+func NewGetWsChatRequest(server string, params *GetWsChatParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/ws/chat")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -476,35 +619,43 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
-	// LoginUserWithBodyWithResponse request with any body
-	LoginUserWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*LoginUserResponse, error)
+	// PostAccountRegisterWithBodyWithResponse request with any body
+	PostAccountRegisterWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostAccountRegisterResponse, error)
 
-	LoginUserWithResponse(ctx context.Context, body LoginUserJSONRequestBody, reqEditors ...RequestEditorFn) (*LoginUserResponse, error)
+	PostAccountRegisterWithResponse(ctx context.Context, body PostAccountRegisterJSONRequestBody, reqEditors ...RequestEditorFn) (*PostAccountRegisterResponse, error)
 
-	// LogoutUserWithResponse request
-	LogoutUserWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*LogoutUserResponse, error)
+	// PostLoginWithBodyWithResponse request with any body
+	PostLoginWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostLoginResponse, error)
 
-	// GetUserInfoWithResponse request
-	GetUserInfoWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetUserInfoResponse, error)
+	PostLoginWithResponse(ctx context.Context, body PostLoginJSONRequestBody, reqEditors ...RequestEditorFn) (*PostLoginResponse, error)
+
+	// GetMeWithResponse request
+	GetMeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetMeResponse, error)
 
 	// GetPingWithResponse request
 	GetPingWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetPingResponse, error)
 
-	// GetActiveUsersWithResponse request
-	GetActiveUsersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetActiveUsersResponse, error)
+	// PostSessionAnonymousWithBodyWithResponse request with any body
+	PostSessionAnonymousWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostSessionAnonymousResponse, error)
 
-	// ChatWebSocketWithResponse request
-	ChatWebSocketWithResponse(ctx context.Context, params *ChatWebSocketParams, reqEditors ...RequestEditorFn) (*ChatWebSocketResponse, error)
+	PostSessionAnonymousWithResponse(ctx context.Context, body PostSessionAnonymousJSONRequestBody, reqEditors ...RequestEditorFn) (*PostSessionAnonymousResponse, error)
+
+	// PostSessionSkipWithResponse request
+	PostSessionSkipWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*PostSessionSkipResponse, error)
+
+	// GetWsChatWithResponse request
+	GetWsChatWithResponse(ctx context.Context, params *GetWsChatParams, reqEditors ...RequestEditorFn) (*GetWsChatResponse, error)
 }
 
-type LoginUserResponse struct {
+type PostAccountRegisterResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *LoginResponse
+	JSON201      *AuthResponse
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
-func (r LoginUserResponse) Status() string {
+func (r PostAccountRegisterResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -512,20 +663,22 @@ func (r LoginUserResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r LoginUserResponse) StatusCode() int {
+func (r PostAccountRegisterResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
 	return 0
 }
 
-type LogoutUserResponse struct {
+type PostLoginResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
+	JSON200      *AuthResponse
+	JSON401      *Error
 }
 
 // Status returns HTTPResponse.Status
-func (r LogoutUserResponse) Status() string {
+func (r PostLoginResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -533,21 +686,21 @@ func (r LogoutUserResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r LogoutUserResponse) StatusCode() int {
+func (r PostLoginResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
 	return 0
 }
 
-type GetUserInfoResponse struct {
+type GetMeResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *User
 }
 
 // Status returns HTTPResponse.Status
-func (r GetUserInfoResponse) Status() string {
+func (r GetMeResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -555,7 +708,7 @@ func (r GetUserInfoResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r GetUserInfoResponse) StatusCode() int {
+func (r GetMeResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -584,14 +737,14 @@ func (r GetPingResponse) StatusCode() int {
 	return 0
 }
 
-type GetActiveUsersResponse struct {
+type PostSessionAnonymousResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *ActiveUsers
+	JSON201      *AnonymousSessionResponse
 }
 
 // Status returns HTTPResponse.Status
-func (r GetActiveUsersResponse) Status() string {
+func (r PostSessionAnonymousResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -599,20 +752,21 @@ func (r GetActiveUsersResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r GetActiveUsersResponse) StatusCode() int {
+func (r PostSessionAnonymousResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
 	return 0
 }
 
-type ChatWebSocketResponse struct {
+type PostSessionSkipResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
+	JSON429      *Error
 }
 
 // Status returns HTTPResponse.Status
-func (r ChatWebSocketResponse) Status() string {
+func (r PostSessionSkipResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -620,46 +774,75 @@ func (r ChatWebSocketResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ChatWebSocketResponse) StatusCode() int {
+func (r PostSessionSkipResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
 	return 0
 }
 
-// LoginUserWithBodyWithResponse request with arbitrary body returning *LoginUserResponse
-func (c *ClientWithResponses) LoginUserWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*LoginUserResponse, error) {
-	rsp, err := c.LoginUserWithBody(ctx, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseLoginUserResponse(rsp)
+type GetWsChatResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
 }
 
-func (c *ClientWithResponses) LoginUserWithResponse(ctx context.Context, body LoginUserJSONRequestBody, reqEditors ...RequestEditorFn) (*LoginUserResponse, error) {
-	rsp, err := c.LoginUser(ctx, body, reqEditors...)
-	if err != nil {
-		return nil, err
+// Status returns HTTPResponse.Status
+func (r GetWsChatResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
 	}
-	return ParseLoginUserResponse(rsp)
+	return http.StatusText(0)
 }
 
-// LogoutUserWithResponse request returning *LogoutUserResponse
-func (c *ClientWithResponses) LogoutUserWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*LogoutUserResponse, error) {
-	rsp, err := c.LogoutUser(ctx, reqEditors...)
-	if err != nil {
-		return nil, err
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetWsChatResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
 	}
-	return ParseLogoutUserResponse(rsp)
+	return 0
 }
 
-// GetUserInfoWithResponse request returning *GetUserInfoResponse
-func (c *ClientWithResponses) GetUserInfoWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetUserInfoResponse, error) {
-	rsp, err := c.GetUserInfo(ctx, reqEditors...)
+// PostAccountRegisterWithBodyWithResponse request with arbitrary body returning *PostAccountRegisterResponse
+func (c *ClientWithResponses) PostAccountRegisterWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostAccountRegisterResponse, error) {
+	rsp, err := c.PostAccountRegisterWithBody(ctx, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseGetUserInfoResponse(rsp)
+	return ParsePostAccountRegisterResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostAccountRegisterWithResponse(ctx context.Context, body PostAccountRegisterJSONRequestBody, reqEditors ...RequestEditorFn) (*PostAccountRegisterResponse, error) {
+	rsp, err := c.PostAccountRegister(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostAccountRegisterResponse(rsp)
+}
+
+// PostLoginWithBodyWithResponse request with arbitrary body returning *PostLoginResponse
+func (c *ClientWithResponses) PostLoginWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostLoginResponse, error) {
+	rsp, err := c.PostLoginWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostLoginResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostLoginWithResponse(ctx context.Context, body PostLoginJSONRequestBody, reqEditors ...RequestEditorFn) (*PostLoginResponse, error) {
+	rsp, err := c.PostLogin(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostLoginResponse(rsp)
+}
+
+// GetMeWithResponse request returning *GetMeResponse
+func (c *ClientWithResponses) GetMeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetMeResponse, error) {
+	rsp, err := c.GetMe(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetMeResponse(rsp)
 }
 
 // GetPingWithResponse request returning *GetPingResponse
@@ -671,75 +854,116 @@ func (c *ClientWithResponses) GetPingWithResponse(ctx context.Context, reqEditor
 	return ParseGetPingResponse(rsp)
 }
 
-// GetActiveUsersWithResponse request returning *GetActiveUsersResponse
-func (c *ClientWithResponses) GetActiveUsersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetActiveUsersResponse, error) {
-	rsp, err := c.GetActiveUsers(ctx, reqEditors...)
+// PostSessionAnonymousWithBodyWithResponse request with arbitrary body returning *PostSessionAnonymousResponse
+func (c *ClientWithResponses) PostSessionAnonymousWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostSessionAnonymousResponse, error) {
+	rsp, err := c.PostSessionAnonymousWithBody(ctx, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseGetActiveUsersResponse(rsp)
+	return ParsePostSessionAnonymousResponse(rsp)
 }
 
-// ChatWebSocketWithResponse request returning *ChatWebSocketResponse
-func (c *ClientWithResponses) ChatWebSocketWithResponse(ctx context.Context, params *ChatWebSocketParams, reqEditors ...RequestEditorFn) (*ChatWebSocketResponse, error) {
-	rsp, err := c.ChatWebSocket(ctx, params, reqEditors...)
+func (c *ClientWithResponses) PostSessionAnonymousWithResponse(ctx context.Context, body PostSessionAnonymousJSONRequestBody, reqEditors ...RequestEditorFn) (*PostSessionAnonymousResponse, error) {
+	rsp, err := c.PostSessionAnonymous(ctx, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseChatWebSocketResponse(rsp)
+	return ParsePostSessionAnonymousResponse(rsp)
 }
 
-// ParseLoginUserResponse parses an HTTP response from a LoginUserWithResponse call
-func ParseLoginUserResponse(rsp *http.Response) (*LoginUserResponse, error) {
+// PostSessionSkipWithResponse request returning *PostSessionSkipResponse
+func (c *ClientWithResponses) PostSessionSkipWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*PostSessionSkipResponse, error) {
+	rsp, err := c.PostSessionSkip(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostSessionSkipResponse(rsp)
+}
+
+// GetWsChatWithResponse request returning *GetWsChatResponse
+func (c *ClientWithResponses) GetWsChatWithResponse(ctx context.Context, params *GetWsChatParams, reqEditors ...RequestEditorFn) (*GetWsChatResponse, error) {
+	rsp, err := c.GetWsChat(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetWsChatResponse(rsp)
+}
+
+// ParsePostAccountRegisterResponse parses an HTTP response from a PostAccountRegisterWithResponse call
+func ParsePostAccountRegisterResponse(rsp *http.Response) (*PostAccountRegisterResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &LoginUserResponse{
+	response := &PostAccountRegisterResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest AuthResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostLoginResponse parses an HTTP response from a PostLoginWithResponse call
+func ParsePostLoginResponse(rsp *http.Response) (*PostLoginResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostLoginResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest LoginResponse
+		var dest AuthResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON200 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
 	}
 
 	return response, nil
 }
 
-// ParseLogoutUserResponse parses an HTTP response from a LogoutUserWithResponse call
-func ParseLogoutUserResponse(rsp *http.Response) (*LogoutUserResponse, error) {
+// ParseGetMeResponse parses an HTTP response from a GetMeWithResponse call
+func ParseGetMeResponse(rsp *http.Response) (*GetMeResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &LogoutUserResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	return response, nil
-}
-
-// ParseGetUserInfoResponse parses an HTTP response from a GetUserInfoWithResponse call
-func ParseGetUserInfoResponse(rsp *http.Response) (*GetUserInfoResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetUserInfoResponse{
+	response := &GetMeResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -783,41 +1007,67 @@ func ParseGetPingResponse(rsp *http.Response) (*GetPingResponse, error) {
 	return response, nil
 }
 
-// ParseGetActiveUsersResponse parses an HTTP response from a GetActiveUsersWithResponse call
-func ParseGetActiveUsersResponse(rsp *http.Response) (*GetActiveUsersResponse, error) {
+// ParsePostSessionAnonymousResponse parses an HTTP response from a PostSessionAnonymousWithResponse call
+func ParsePostSessionAnonymousResponse(rsp *http.Response) (*PostSessionAnonymousResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &GetActiveUsersResponse{
+	response := &PostSessionAnonymousResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest ActiveUsers
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest AnonymousSessionResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.JSON200 = &dest
+		response.JSON201 = &dest
 
 	}
 
 	return response, nil
 }
 
-// ParseChatWebSocketResponse parses an HTTP response from a ChatWebSocketWithResponse call
-func ParseChatWebSocketResponse(rsp *http.Response) (*ChatWebSocketResponse, error) {
+// ParsePostSessionSkipResponse parses an HTTP response from a PostSessionSkipWithResponse call
+func ParsePostSessionSkipResponse(rsp *http.Response) (*PostSessionSkipResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ChatWebSocketResponse{
+	response := &PostSessionSkipResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetWsChatResponse parses an HTTP response from a GetWsChatWithResponse call
+func ParseGetWsChatResponse(rsp *http.Response) (*GetWsChatResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetWsChatResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -827,24 +1077,27 @@ func ParseChatWebSocketResponse(rsp *http.Response) (*ChatWebSocketResponse, err
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
-	// Logs in a user and returns a JWT token
+	// Create a persistent account and optionally keep the current conversation
+	// (POST /account/register)
+	PostAccountRegister(w http.ResponseWriter, r *http.Request)
+	// Authenticate an existing account
 	// (POST /login)
-	LoginUser(w http.ResponseWriter, r *http.Request)
-	// Logs out a user (clears session)
-	// (POST /logout)
-	LogoutUser(w http.ResponseWriter, r *http.Request)
-	// Gets the logged-in user's info
+	PostLogin(w http.ResponseWriter, r *http.Request)
+	// Retrieve the current user profile
 	// (GET /me)
-	GetUserInfo(w http.ResponseWriter, r *http.Request)
-
+	GetMe(w http.ResponseWriter, r *http.Request)
+	// Health check
 	// (GET /ping)
 	GetPing(w http.ResponseWriter, r *http.Request)
-	// Get list of active users
-	// (GET /users)
-	GetActiveUsers(w http.ResponseWriter, r *http.Request)
-	// WebSocket connection for real-time chat
-	// (GET /ws)
-	ChatWebSocket(w http.ResponseWriter, r *http.Request, params ChatWebSocketParams)
+	// Start an anonymous session and join a conversation
+	// (POST /session/anonymous)
+	PostSessionAnonymous(w http.ResponseWriter, r *http.Request)
+	// Leave the current conversation and rotate immediately
+	// (POST /session/skip)
+	PostSessionSkip(w http.ResponseWriter, r *http.Request)
+	// WebSocket endpoint for real‑time chat
+	// (GET /ws/chat)
+	GetWsChat(w http.ResponseWriter, r *http.Request, params GetWsChatParams)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -856,11 +1109,11 @@ type ServerInterfaceWrapper struct {
 
 type MiddlewareFunc func(http.Handler) http.Handler
 
-// LoginUser operation middleware
-func (siw *ServerInterfaceWrapper) LoginUser(w http.ResponseWriter, r *http.Request) {
+// PostAccountRegister operation middleware
+func (siw *ServerInterfaceWrapper) PostAccountRegister(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.LoginUser(w, r)
+		siw.Handler.PostAccountRegister(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -870,17 +1123,11 @@ func (siw *ServerInterfaceWrapper) LoginUser(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
-// LogoutUser operation middleware
-func (siw *ServerInterfaceWrapper) LogoutUser(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
+// PostLogin operation middleware
+func (siw *ServerInterfaceWrapper) PostLogin(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.LogoutUser(w, r)
+		siw.Handler.PostLogin(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -890,8 +1137,8 @@ func (siw *ServerInterfaceWrapper) LogoutUser(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
-// GetUserInfo operation middleware
-func (siw *ServerInterfaceWrapper) GetUserInfo(w http.ResponseWriter, r *http.Request) {
+// GetMe operation middleware
+func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
@@ -900,7 +1147,7 @@ func (siw *ServerInterfaceWrapper) GetUserInfo(w http.ResponseWriter, r *http.Re
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetUserInfo(w, r)
+		siw.Handler.GetMe(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -924,17 +1171,11 @@ func (siw *ServerInterfaceWrapper) GetPing(w http.ResponseWriter, r *http.Reques
 	handler.ServeHTTP(w, r)
 }
 
-// GetActiveUsers operation middleware
-func (siw *ServerInterfaceWrapper) GetActiveUsers(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
+// PostSessionAnonymous operation middleware
+func (siw *ServerInterfaceWrapper) PostSessionAnonymous(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetActiveUsers(w, r)
+		siw.Handler.PostSessionAnonymous(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -944,13 +1185,33 @@ func (siw *ServerInterfaceWrapper) GetActiveUsers(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
-// ChatWebSocket operation middleware
-func (siw *ServerInterfaceWrapper) ChatWebSocket(w http.ResponseWriter, r *http.Request) {
+// PostSessionSkip operation middleware
+func (siw *ServerInterfaceWrapper) PostSessionSkip(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PostSessionSkip(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetWsChat operation middleware
+func (siw *ServerInterfaceWrapper) GetWsChat(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params ChatWebSocketParams
+	var params GetWsChatParams
 
 	// ------------- Required query parameter "token" -------------
 
@@ -968,7 +1229,7 @@ func (siw *ServerInterfaceWrapper) ChatWebSocket(w http.ResponseWriter, r *http.
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ChatWebSocket(w, r, params)
+		siw.Handler.GetWsChat(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1098,12 +1359,13 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 		ErrorHandlerFunc:   options.ErrorHandlerFunc,
 	}
 
-	m.HandleFunc("POST "+options.BaseURL+"/login", wrapper.LoginUser)
-	m.HandleFunc("POST "+options.BaseURL+"/logout", wrapper.LogoutUser)
-	m.HandleFunc("GET "+options.BaseURL+"/me", wrapper.GetUserInfo)
+	m.HandleFunc("POST "+options.BaseURL+"/account/register", wrapper.PostAccountRegister)
+	m.HandleFunc("POST "+options.BaseURL+"/login", wrapper.PostLogin)
+	m.HandleFunc("GET "+options.BaseURL+"/me", wrapper.GetMe)
 	m.HandleFunc("GET "+options.BaseURL+"/ping", wrapper.GetPing)
-	m.HandleFunc("GET "+options.BaseURL+"/users", wrapper.GetActiveUsers)
-	m.HandleFunc("GET "+options.BaseURL+"/ws", wrapper.ChatWebSocket)
+	m.HandleFunc("POST "+options.BaseURL+"/session/anonymous", wrapper.PostSessionAnonymous)
+	m.HandleFunc("POST "+options.BaseURL+"/session/skip", wrapper.PostSessionSkip)
+	m.HandleFunc("GET "+options.BaseURL+"/ws/chat", wrapper.GetWsChat)
 
 	return m
 }
@@ -1111,19 +1373,37 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
+	"H4sIAAAAAAAC/7xY327bOtJ/lQG/72KP4LWdtAuc473K6Z7tpmjPCeoEuagDhJbGFhuJZMlRHKEw4FcI",
+	"sO9x3slPshhStmVbabuLpjeGRVGcf7+Z3ww/i9SU1mjU5MXos/BpjqUMf8+00XVpKj9G75XR7/FThZ74",
+	"lXXGoiOFYWOmvC1k/bsskR9L+fAW9ZxyMXpx2hNUWxQj4ckpPRfLZU84/FQph5kYfdj79ma72Uw/Ykpi",
+	"2etQwlujPR5rkRp9j85LUkafZ0Ev9KlTlhfESJz/A8wMKEdo7wwLlUcHyoMtZIoZKE2mL4407wl8sMqh",
+	"P9djTI3Oglh8kKUtUIxOfh5uP1GacI6OvyFzh/pYm3FuHK1Xj4W6xwzeXF/CX7A/78Pf1qs/S6UrQv9T",
+	"lwoLnHqT3iFduYJPnRlXShIjUTklvubsqMvBIR1m9Q6d2RmZivKno/GE2W+Nnu9bffpyvfozh2kNGc5k",
+	"VdBP32hGl06vcknv0Hs5x2PZr1GjUymUcQNE1wE+pLnUc8zA3KODa5yOg28YAV9D2FF4yp3wVhqcDofD",
+	"jliSKtGTLO1eIDNJ+Fd+1RX+uPBZoK5KdkWaS2p54imH8dujoO60bavS5dbfnDOuI++RpCr8saf/CH9k",
+	"AaVMc6VxvXp0KDM5LTj5MgTjQOmZ6cyxjawvmxS3dSn71szV07XKSu8XxmV7Lt8udujDtUE3le3LKm13",
+	"9nYHdil4YfS8Q7Fm9csywq6uQ9/jXHlC9z8bXiq9gevPX3HDQYFvffmi9518dOWxA3CqO+m+PUSKLd1u",
+	"Pxa87AmPaeUU1WMmwij2V5QOHdc7fpqGp39uXPjm+lL0Im3ySfHtDkg5kRVLPjgA/ihVtvzWA87B9epx",
+	"ah4wA05sIP6xUjkfKMqDkzozZVFz7QLKHfIHkS7AmUpnvj/RZ0xwGtNAb8pDaTIsCsxAepCQJO0ykCSw",
+	"Xv07kKCXZaBGT65KiT+sPGYTvciRcuZHglx6oIUBKx2pVFmpyXMul1LXfYCroGMpa0gdSkKQYNF5xqWm",
+	"iZZpaipNYHRRwyLHwL1c9lOVIZCBO0QLcp+eJVNFH+AyR8jQqzmbNNFcTqIX5s5UFpwxpQepM0CdrVeP",
+	"ZNarRwyPqauDs/sTHQodMVmL3ywHzMkCmDPg7OJc9ASLjWEZ9k/7J4wtY1FLq8RIvOgP+y8CbikPsBg0",
+	"Bg1ck3sxjWPyHUSZCEtLnq106NHdY/C5i9mKGSTJBpZJ0gc4n8Xg8wKHQhbB4okmeRcdB+EUBw6pctpD",
+	"krwc/gKvjJ4VKqUkgYWiHGRXCQ61c6KtrAsjM/AmdkWFQk2QSg3WmdLSrjUiA+RqkHOpGjdyVm55UFwY",
+	"T2fRGZs6JGLioadfTVY37Mk44L/S2kKl4fvBR2/0rvHkf//vcCZG4v8Gu8500LSlg8Myt9zPcHIVhoXY",
+	"loQwnQ5Pvpv4vZ4nyD6IcwPxiP+MAfRy+Mt3Ex95uEPuVYOdDU4AH5QnHwtaVZbS1WIkXh1nJWySklPH",
+	"NLRd1DEVAyoq5wIsWkkZjh0UzLNtyB9jIlDxMyFhj+a/CQbDHweDinLUxIdvQHDy/CA41/eyUBmDL2Pp",
+	"sjgEQFsvkDqiROn5BgUxsJFI59gR1NdI71A8o2cD73fY9qqBYRXf72hajD7sE/SHm+VN2+b3SE5hU2/T",
+	"1jFc5WaqwGi0VbH9esrsC37/jIaHprDD8Ga9bdG/UBaUQ5pjeheV93E2HshNM/E0E40rVhG5E2BKMk66",
+	"GpKkNYYnSSgGDlNU92GjP5pVmZsmXCnMwrfJgwx8NCry03aQYkq2RmnqT/REX+6oS5UlZkoSFnUcvX1r",
+	"GtddvUrgNFTcj0y00QgLqQKAWx0JNySM7dJSDYWZTmtQMwi7pUOQ91IVTIN9gGtuQuRE+zD37h0inQvW",
+	"H90XTHGutO9BIWPqhC5sopuZHSpdoPf7hFoUHm63QfJ3yt4+xaLNLce2K3ym4vnU1c6PptOnLnc6EqHZ",
+	"Ap6kC1V1LyfGvMph36YANP4OYA6glB0k1g7Kl7mskT/mjUcueXmcaBfSkeb+zNCWBU5/QCtwaUzox4FN",
+	"2jSY/r+rmW9RHhTM/Z6cy0Mwq53C0aELPwh3ErtSetCp2LmTsd3f3bSE7j5Jwr1OksCnCl3N2ShLJHTw",
+	"7mp8yRqQDFEMLDfRXIfMlNcwg5kzZSvHtii47cFt7FRue1wYbo+a9ttQlc6KYnMv5EOZeDP+43eIYyGP",
+	"NMRN9BxuWxdMt32AMzhZrx6NXq8eT+LIxsOJV6Ut6sNJJvTzubQWdZgDNgYdDlR/jyPNRMeZxmHlcTeg",
+	"xemscthVQV4jXXtWMYwpjft8CDe3aiI4VvREHJa314H7Cd9rIfBwmr45QP5JLAb7Id4VfusMmdQU4BeK",
+	"0vwoa48pIox0DmXBM5zigZStWUb0MmlEaypXNLO1Hw0G0qp+cw3bT00pljfL/wQAAP//dbl7/dcWAAA=",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file
