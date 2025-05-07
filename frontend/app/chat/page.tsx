@@ -17,6 +17,7 @@ const Chat: React.FC = () => {
   const [allUsers, setAllUsers] = useState<string[]>([]);
   const [users, setUsers] = useState<string[]>([]);
   const [userCount, setUserCount] = useState<number>(0);
+  const [groups, setGroups] = useState({});
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const router = useRouter();
 
@@ -164,7 +165,7 @@ const Chat: React.FC = () => {
             }}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyPress={(e) => e.key === "Enter" && sendMessage()}
+            onKeyDown={(e) => e.key === "Enter" && sendMessage()}
           />
           <Button
             variant="contained"

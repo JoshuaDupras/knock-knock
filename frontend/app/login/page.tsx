@@ -36,6 +36,7 @@ const Login = () => {
         className="p-2 border rounded-lg mb-2 w-64 text-black bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
         value={username}
         onChange={(e) => setUsername(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && handleLogin()}
       />
       <input
         type="password"
@@ -43,6 +44,7 @@ const Login = () => {
         className="p-2 border rounded-lg mb-2 w-64 text-black bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
         value={plaintextPassword}
         onChange={(e) => setPassword(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && handleLogin()}
       />
       <button
         className="p-2 bg-blue-500 text-white rounded-lg w-64 hover:bg-blue-600"
