@@ -19,6 +19,7 @@ export default function ChatScreen({ route }: Props) {
   const [timeLeft, setTimeLeft]       = useState<number>(0)
   const [waitingText, setWaitingText] = useState('Waiting to be paired…')
   const [convId, setConvId]           = useState<string | null>(null)
+  const [showPairNotif, setShowPairNotif] = useState(false)    // ← new
   const wsRef  = useRef<WebSocket | null>(null)
   const input  = useRef<TextInput>(null)
   const { api } = useAuth()
@@ -66,6 +67,10 @@ export default function ChatScreen({ route }: Props) {
           setMsgs([])
           setExpiresAt(new Date(msg.expiresAt))
           setConvId(msg.conversationId)
+
+          // ← show notification for 2s
+          setShowPairNotif(true)
+          setTimeout(() => setShowPairNotif(false), 2000)
           break
 
         case 'time_up':
@@ -132,6 +137,14 @@ export default function ChatScreen({ route }: Props) {
   // ---------------- render ------------------
   return (
     <View style={styles.container}>
+
+      {/* ← Paired notification banner */}
+      {showPairNotif && (
+        <View style={styles.pairNotif}>
+          <Text style={styles.pairNotifText}>Paired! 🎉</Text>
+        </View>
+      )}
+
       {!paired ? (
         <View style={styles.waiting}>
           <ActivityIndicator size="large" />
@@ -179,4 +192,20 @@ const styles = StyleSheet.create({
   msg:{marginVertical:4},
   ts:{fontSize:10,color:'#666'},
   input:{borderWidth:1,padding:8,borderRadius:4,marginBottom:8},
+
+  // ← new styles for the pairing notification
+  pairNotif: {
+    position: 'absolute',
+    top: 16,
+    alignSelf: 'center',
+    backgroundColor: '#4caf50',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 4,
+    zIndex: 1,
+  },
+  pairNotifText: {
+    color: 'white',
+    fontWeight: 'bold',
+  },
 })
