@@ -22,12 +22,7 @@ paths:
 
   /session/anonymous:
     post:
-      summary: Start an anonymous 5‑minute session and join the waiting queue
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/AnonymousSessionRequest"
+      summary: join the waiting queue
       responses:
         "201":
           description: Anonymous session created
@@ -140,13 +135,6 @@ components:
           type: string
           example: pong
 
-    AnonymousSessionRequest:
-      type: object
-      required: [displayName]
-      properties:
-        displayName:
-          type: string
-
     AnonymousSessionResponse:
       type: object
       required: [token, websocketUrl, expiresInSeconds]
@@ -206,41 +194,31 @@ components:
           type: string
           nullable: true
 
-    # ─── Internal runtime helpers (not in any REST path) ────────────
-    InternalUser:
-      description: Internal user struct generated for server logic
-      x-go-type: user
-      x-go-type-import: example.com/ephemeral/server
+
+    ChatMessage:
+      description: |
+        A single envelope for every WebSocket event.
+
+        • **chat**   → `message` + `timestamp` are present  
+        • **paired** → `expiresAt` is present (when the round ends)  
+        • **time_up**→ `timestamp` is present (when the round actually ends)
+
+        All other combinations are ignored by the server.
       type: object
+      required: [type, conversationId]
       properties:
-        id:       { type: string }
-        username: { type: string }
-        lastSkipTime:
+        type:
+          type: string
+          enum: [chat, paired, time_up]
+        conversationId:
+          type: string
+        message:
+          type: string
+          nullable: true       # only for `chat`
+        timestamp:
           type: string
           format: date-time
-          x-go-name: LastSkipTime
-        conn:
-          description: WebSocket connection (ignored in JSON)
+        expiresAt:
           type: string
-          x-go-type: "*websocket.Conn"
-          x-go-type-import: github.com/gorilla/websocket
-          x-oapi-codegen-extra-tags:
-            json: '"-"'
-
-    Conversation:
-      description: Runtime pairing room (two participants for now)
-      x-go-type: conversation
-      x-go-type-import: example.com/ephemeral/server
-      type: object
-      properties:
-        id: { type: string }
-        participants:
-          type: array
-          items: { $ref: "#/components/schemas/InternalUser" }
-        timer:
-          description: Round timer (omitted from JSON)
-          type: string
-          x-go-type: "*time.Timer"
-          x-go-type-import: time
-          x-oapi-codegen-extra-tags:
-            json: '"-"'
+          format: date-time
+          nullable: true       # only for `paired`

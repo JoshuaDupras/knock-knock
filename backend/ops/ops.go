@@ -1,3 +1,4 @@
+// backend/ops/ops.go
 // Ephemeral Chat reference server that conforms to the OpenAPI spec in api/.
 // Focus: minimal but functional flows for /session/anonymous, /account/register,
 // /login, /me, /session/skip, /ping, and the WebSocket chat endpoint.
@@ -7,25 +8,26 @@
 package ops
 
 import (
-    "crypto/rand"
-    "encoding/base64"
-    "encoding/json"
-    "log/slog"
-    "net/http"
-    "strings"
-    "sync"
-    "time"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
 
-    "github.com/golang-jwt/jwt/v5"
-    "github.com/gorilla/websocket"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/gorilla/websocket"
 
-    "backend/api"
+	"backend/api"
 )
 
 // ─── CONFIG ────────────────────────────────────────────────────────────────
 var (
     jwtKey           = []byte("super‑secret‑dev‑key")
-    anonSessionTTL   = 5 * time.Minute
+    anonSessionTTL   = 100 * 365 * 24 * time.Hour
     registeredTTL    = 24 * time.Hour
     roundDuration    = 3 * time.Minute
     skipCooldown     = 10 * time.Second // throttle rapid skips → 429
@@ -44,6 +46,7 @@ type conversation struct {
     ID           string
     Participants []*user // always size ≥2 (1‑on‑1 for now)
     timer        *time.Timer
+    expiresAt    time.Time
 }
 
 // ─── IN‑MEMORY STORE ───────────────────────────────────────────────────────
@@ -95,7 +98,7 @@ func tryPair() {
     mu.Lock()
     defer mu.Unlock()
 
-    // Log the current state of the waiting queue
+    // 1) Log current queue
     slog.Info("Current waiting queue", "queueLength", len(waitingQueue), "userIDs", func() []string {
         ids := make([]string, len(waitingQueue))
         for i, u := range waitingQueue {
@@ -104,38 +107,39 @@ func tryPair() {
         return ids
     }())
 
-    // Keep finding and pairing the first two distinct users
+    // 2) Keep pairing as long as we can find two connected users
     for {
         n := len(waitingQueue)
-        if n < 2 {
-            slog.Info("Not enough users to pair", "queueLength", n)
-            break
-        }
-
-        // find two distinct indices
         var i, j int
         found := false
+
+        // find two distinct indices whose conn != nil
         for x := 0; x < n-1 && !found; x++ {
+            u1 := waitingQueue[x]
+            if u1.conn == nil {
+                continue
+            }
             for y := x + 1; y < n; y++ {
-                if waitingQueue[x].ID != waitingQueue[y].ID {
+                u2 := waitingQueue[y]
+                if u2.conn == nil {
+                    continue
+                }
+                if u1.ID != u2.ID {
                     i, j = x, y
                     found = true
                     break
                 }
             }
         }
+
         if !found {
-            // all remaining entries are the same user => stop
-            slog.Info("No distinct users found in the waiting queue")
+            slog.Info("Not enough connected users to pair; stopping")
             break
         }
 
-        // extract the two users
-        a := waitingQueue[i]
-        b := waitingQueue[j]
+        // 3) Extract the two users and remove them (higher index first)
+        a, b := waitingQueue[i], waitingQueue[j]
         slog.Info("Pairing users", "userA", a.ID, "userB", b.ID)
-
-        // remove them from the slice (higher index first)
         if j > i {
             waitingQueue = append(waitingQueue[:j], waitingQueue[j+1:]...)
             waitingQueue = append(waitingQueue[:i], waitingQueue[i+1:]...)
@@ -143,52 +147,72 @@ func tryPair() {
             waitingQueue = append(waitingQueue[:i], waitingQueue[i+1:]...)
             waitingQueue = append(waitingQueue[:j], waitingQueue[j+1:]...)
         }
-        slog.Info("Updated waiting queue after pairing", "queueLength", len(waitingQueue))
 
-        // now create the conversation
+        // 4) Create and record the conversation
         conv := &conversation{
             ID:           genID(),
             Participants: []*user{a, b},
+            expiresAt:    time.Now().Add(roundDuration),
         }
         conversations[conv.ID] = conv
-        slog.Info("Created new conversation",
-            "conversationID", conv.ID,
-            "participants", []string{a.ID, b.ID},
-        )
+        slog.Info("Created conversation", "conversationID", conv.ID)
 
+        // 5) Notify both participants
+        now := time.Now().UTC()
+        for _, p := range conv.Participants {
+            text := fmt.Sprintf("paired with %s", func() string {
+                if conv.Participants[0] == p {
+                    return conv.Participants[1].ID
+                }
+                return conv.Participants[0].ID
+            }())
+            msg := api.ChatMessage{
+                Type:           api.Paired,
+                ConversationId: conv.ID,
+                Message:        &text,
+                Timestamp:      &now,
+                ExpiresAt:      &conv.expiresAt,
+            }
+            // p.conn is guaranteed non-nil here
+            if err := p.conn.WriteJSON(msg); err != nil {
+                slog.Error("Failed to send pairing notification", "userID", p.ID, "error", err)
+            } else {
+                slog.Info("Sent pairing notification", "userID", p.ID)
+            }
+        }
+
+        // 6) Schedule automatic timeout
         conv.timer = time.AfterFunc(roundDuration, func() {
             slog.Info("Conversation timed out", "conversationID", conv.ID)
             mu.Lock()
-            waitingQueue = append(waitingQueue, a, b)
             delete(conversations, conv.ID)
-            slog.Info("Conversation removed and users re-added to queue",
-                "conversationID", conv.ID,
-                "userA", a.ID,
-                "userB", b.ID,
-                "queueLength", len(waitingQueue),
-            )
+            waitingQueue = append(waitingQueue, a, b)
             mu.Unlock()
+
+            // send time_up to anyone still connected
+            now := time.Now().UTC()
+            notify := api.ChatMessage{
+                Type:           api.TimeUp,
+                ConversationId: conv.ID,
+                Timestamp:      &now,
+            }
+            for _, p := range []*user{a, b} {
+                if p.conn != nil {
+                    if err := p.conn.WriteJSON(notify); err != nil {
+                        slog.Warn("Failed to send time_up", "userID", p.ID, "error", err)
+                    }
+                }
+            }
+
+            // try to form new pairs
             tryPair()
         })
 
-        // notify via websocket
-        for _, p := range conv.Participants {
-            if p.conn != nil {
-                err := p.conn.WriteJSON(api.ChatMessage{
-                    Type:           api.Chat,
-                    ConversationId: conv.ID,
-                    Message:        "paired",
-                    Timestamp:      time.Now().UTC(),
-                })
-                if err != nil {
-                    slog.Error("Failed to send WebSocket message", "userID", p.ID, "error", err)
-                } else {
-                    slog.Info("Sent pairing notification", "userID", p.ID, "conversationID", conv.ID)
-                }
-            }
-        }
+        // loop around to see if we can pair more users...
     }
 }
+
+
 
 
 // ─── SERVER IMPLEMENTATION (api.ServerInterface) ──────────────────────────
@@ -205,12 +229,12 @@ func New() *Server { return &Server{} }
 // POST /session/anonymous
 func (s *Server) PostSessionAnonymous(w http.ResponseWriter, r *http.Request) {
     slog.Info("Handling POST /session/anonymous")
-    var req api.AnonymousSessionRequest
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-        slog.Error("Failed to decode request", "error", err)
-        http.Error(w, err.Error(), http.StatusBadRequest)
-        return
-    }
+    // var req api.AnonymousSessionRequest
+    // if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+    //     slog.Error("Failed to decode request", "error", err)
+    //     http.Error(w, err.Error(), http.StatusBadRequest)
+    //     return
+    // }
 
     u := &user{ID: genID()}
     mu.Lock()
@@ -224,8 +248,8 @@ func (s *Server) PostSessionAnonymous(w http.ResponseWriter, r *http.Request) {
     resp := api.AnonymousSessionResponse{
         Token:            token,
         WebsocketUrl:     "ws://" + r.Host + "/ws/chat?token=" + token,
-        ExpiresInSeconds: int(anonSessionTTL.Seconds()),
-        ConversationId:   "",
+        ExpiresInSeconds: int32(anonSessionTTL.Seconds()),
+        ConversationId:   nil,
     }
     w.Header().Set("Content-Type", "application/json")
     w.WriteHeader(http.StatusCreated)
@@ -321,7 +345,7 @@ func (s *Server) GetMe(w http.ResponseWriter, r *http.Request) {
 func (s *Server) GetPing(w http.ResponseWriter, r *http.Request) {
     slog.Info("Handling GET /ping")
     w.Header().Set("Content-Type", "application/json; charset=utf-8")
-    _ = json.NewEncoder(w).Encode(api.Pong{Pong: "pong"})
+    _ = json.NewEncoder(w).Encode(api.Pong{Ping: "pong"})
 }
 
 // POST /session/skip
@@ -387,13 +411,7 @@ func (s *Server) GetWsChat(w http.ResponseWriter, r *http.Request, params api.Ge
     u.conn = conn
     slog.Info("WebSocket connection established", "userID", u.ID)
 
-    // **send an immediate welcome** so a lone client sees "paired"
-    _ = conn.WriteJSON(api.ChatMessage{
-        Type:           api.Chat,
-        ConversationId: "",                  // test doesn’t inspect this
-        Message:        "riding solo",
-        Timestamp:      time.Now().UTC(),
-    })
+    go tryPair()
 
     go func() {
         defer func() {
@@ -415,7 +433,8 @@ func (s *Server) GetWsChat(w http.ResponseWriter, r *http.Request, params api.Ge
                 }
                 return
             }
-            msg.Timestamp = time.Now().UTC()
+            now := time.Now().UTC()
+            msg.Timestamp = &now
             mu.RLock()
             conv := conversations[msg.ConversationId]
             mu.RUnlock()

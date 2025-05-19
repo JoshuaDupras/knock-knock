@@ -1,0 +1,9 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true
+  },
+  "include": [
+    "src/**/*"          // ⟵ must cover src/api/index.ts
+  ]
+}

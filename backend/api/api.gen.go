@@ -29,36 +29,36 @@ const (
 
 // Defines values for ChatMessageType.
 const (
-	Chat ChatMessageType = "chat"
+	Chat   ChatMessageType = "chat"
+	Paired ChatMessageType = "paired"
+	TimeUp ChatMessageType = "time_up"
 )
-
-// AnonymousSessionRequest defines model for AnonymousSessionRequest.
-type AnonymousSessionRequest struct {
-	DisplayName string `json:"displayName"`
-}
 
 // AnonymousSessionResponse defines model for AnonymousSessionResponse.
 type AnonymousSessionResponse struct {
-	// ConversationId ID of the conversation the user is placed into.
-	ConversationId   string `json:"conversationId"`
-	ExpiresInSeconds int    `json:"expiresInSeconds"`
-
-	// Token Short‑lived JWT (e.g. 5 minutes)
-	Token        string `json:"token"`
-	WebsocketUrl string `json:"websocketUrl"`
+	ConversationId   *string `json:"conversationId,omitempty"`
+	ExpiresInSeconds int32   `json:"expiresInSeconds"`
+	Token            string  `json:"token"`
+	WebsocketUrl     string  `json:"websocketUrl"`
 }
 
 // AuthResponse defines model for AuthResponse.
 type AuthResponse struct {
-	// Token Long‑lived JWT (24 h by default)
 	Token string `json:"token"`
 }
 
-// ChatMessage Generic message format exchanged over WebSocket.
+// ChatMessage A single envelope for every WebSocket event.
+//
+// • **chat**   → `message` + `timestamp` are present
+// • **paired** → `expiresAt` is present (when the round ends)
+// • **time_up**→ `timestamp` is present (when the round actually ends)
+//
+// All other combinations are ignored by the server.
 type ChatMessage struct {
 	ConversationId string          `json:"conversationId"`
-	Message        string          `json:"message"`
-	Timestamp      time.Time       `json:"timestamp"`
+	ExpiresAt      *time.Time      `json:"expiresAt"`
+	Message        *string         `json:"message"`
+	Timestamp      *time.Time      `json:"timestamp,omitempty"`
 	Type           ChatMessageType `json:"type"`
 }
 
@@ -67,8 +67,7 @@ type ChatMessageType string
 
 // Error defines model for Error.
 type Error struct {
-	// Details Optional machine‑readable code or info
-	Details *string `json:"details,omitempty"`
+	Details *string `json:"details"`
 	Error   string  `json:"error"`
 }
 
@@ -80,16 +79,16 @@ type LoginRequest struct {
 
 // Pong defines model for Pong.
 type Pong struct {
-	Pong string `json:"pong"`
+	Ping string `json:"ping"`
 }
 
 // RegisterRequest defines model for RegisterRequest.
 type RegisterRequest struct {
-	Password string `json:"password"`
-	Username string `json:"username"`
+	Password *string `json:"password,omitempty"`
+	Username string  `json:"username"`
 }
 
-// User defines model for User.
+// User Public view of an account
 type User struct {
 	Id       string `json:"id"`
 	Username string `json:"username"`
@@ -105,9 +104,6 @@ type PostAccountRegisterJSONRequestBody = RegisterRequest
 
 // PostLoginJSONRequestBody defines body for PostLogin for application/json ContentType.
 type PostLoginJSONRequestBody = LoginRequest
-
-// PostSessionAnonymousJSONRequestBody defines body for PostSessionAnonymous for application/json ContentType.
-type PostSessionAnonymousJSONRequestBody = AnonymousSessionRequest
 
 // RequestEditorFn  is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -198,10 +194,8 @@ type ClientInterface interface {
 	// GetPing request
 	GetPing(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// PostSessionAnonymousWithBody request with any body
-	PostSessionAnonymousWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	PostSessionAnonymous(ctx context.Context, body PostSessionAnonymousJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// PostSessionAnonymous request
+	PostSessionAnonymous(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PostSessionSkip request
 	PostSessionSkip(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -282,20 +276,8 @@ func (c *Client) GetPing(ctx context.Context, reqEditors ...RequestEditorFn) (*h
 	return c.Client.Do(req)
 }
 
-func (c *Client) PostSessionAnonymousWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPostSessionAnonymousRequestWithBody(c.Server, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) PostSessionAnonymous(ctx context.Context, body PostSessionAnonymousJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPostSessionAnonymousRequest(c.Server, body)
+func (c *Client) PostSessionAnonymous(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostSessionAnonymousRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -464,19 +446,8 @@ func NewGetPingRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
-// NewPostSessionAnonymousRequest calls the generic PostSessionAnonymous builder with application/json body
-func NewPostSessionAnonymousRequest(server string, body PostSessionAnonymousJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewPostSessionAnonymousRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewPostSessionAnonymousRequestWithBody generates requests for PostSessionAnonymous with any type of body
-func NewPostSessionAnonymousRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+// NewPostSessionAnonymousRequest generates requests for PostSessionAnonymous
+func NewPostSessionAnonymousRequest(server string) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -494,12 +465,10 @@ func NewPostSessionAnonymousRequestWithBody(server string, contentType string, b
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", queryURL.String(), body)
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
-
-	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -635,10 +604,8 @@ type ClientWithResponsesInterface interface {
 	// GetPingWithResponse request
 	GetPingWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetPingResponse, error)
 
-	// PostSessionAnonymousWithBodyWithResponse request with any body
-	PostSessionAnonymousWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostSessionAnonymousResponse, error)
-
-	PostSessionAnonymousWithResponse(ctx context.Context, body PostSessionAnonymousJSONRequestBody, reqEditors ...RequestEditorFn) (*PostSessionAnonymousResponse, error)
+	// PostSessionAnonymousWithResponse request
+	PostSessionAnonymousWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*PostSessionAnonymousResponse, error)
 
 	// PostSessionSkipWithResponse request
 	PostSessionSkipWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*PostSessionSkipResponse, error)
@@ -854,17 +821,9 @@ func (c *ClientWithResponses) GetPingWithResponse(ctx context.Context, reqEditor
 	return ParseGetPingResponse(rsp)
 }
 
-// PostSessionAnonymousWithBodyWithResponse request with arbitrary body returning *PostSessionAnonymousResponse
-func (c *ClientWithResponses) PostSessionAnonymousWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostSessionAnonymousResponse, error) {
-	rsp, err := c.PostSessionAnonymousWithBody(ctx, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePostSessionAnonymousResponse(rsp)
-}
-
-func (c *ClientWithResponses) PostSessionAnonymousWithResponse(ctx context.Context, body PostSessionAnonymousJSONRequestBody, reqEditors ...RequestEditorFn) (*PostSessionAnonymousResponse, error) {
-	rsp, err := c.PostSessionAnonymous(ctx, body, reqEditors...)
+// PostSessionAnonymousWithResponse request returning *PostSessionAnonymousResponse
+func (c *ClientWithResponses) PostSessionAnonymousWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*PostSessionAnonymousResponse, error) {
+	rsp, err := c.PostSessionAnonymous(ctx, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -1077,25 +1036,25 @@ func ParseGetWsChatResponse(rsp *http.Response) (*GetWsChatResponse, error) {
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
-	// Create a persistent account and optionally keep the current conversation
+	// Create a persistent account (username must be unique)
 	// (POST /account/register)
 	PostAccountRegister(w http.ResponseWriter, r *http.Request)
-	// Authenticate an existing account
+	// Log in with an existing account
 	// (POST /login)
 	PostLogin(w http.ResponseWriter, r *http.Request)
-	// Retrieve the current user profile
+	// Return the current user profile
 	// (GET /me)
 	GetMe(w http.ResponseWriter, r *http.Request)
-	// Health check
+
 	// (GET /ping)
 	GetPing(w http.ResponseWriter, r *http.Request)
-	// Start an anonymous session and join a conversation
+	// join the waiting queue
 	// (POST /session/anonymous)
 	PostSessionAnonymous(w http.ResponseWriter, r *http.Request)
 	// Leave the current conversation and rotate immediately
 	// (POST /session/skip)
 	PostSessionSkip(w http.ResponseWriter, r *http.Request)
-	// WebSocket endpoint for real‑time chat
+	// WebSocket for real‑time chat
 	// (GET /ws/chat)
 	GetWsChat(w http.ResponseWriter, r *http.Request, params GetWsChatParams)
 }
@@ -1373,37 +1332,27 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"H4sIAAAAAAAC/7xY327bOtJ/lQG/72KP4LWdtAuc473K6Z7tpmjPCeoEuagDhJbGFhuJZMlRHKEw4FcI",
-	"sO9x3slPshhStmVbabuLpjeGRVGcf7+Z3ww/i9SU1mjU5MXos/BpjqUMf8+00XVpKj9G75XR7/FThZ74",
-	"lXXGoiOFYWOmvC1k/bsskR9L+fAW9ZxyMXpx2hNUWxQj4ckpPRfLZU84/FQph5kYfdj79ma72Uw/Ykpi",
-	"2etQwlujPR5rkRp9j85LUkafZ0Ev9KlTlhfESJz/A8wMKEdo7wwLlUcHyoMtZIoZKE2mL4407wl8sMqh",
-	"P9djTI3Oglh8kKUtUIxOfh5uP1GacI6OvyFzh/pYm3FuHK1Xj4W6xwzeXF/CX7A/78Pf1qs/S6UrQv9T",
-	"lwoLnHqT3iFduYJPnRlXShIjUTklvubsqMvBIR1m9Q6d2RmZivKno/GE2W+Nnu9bffpyvfozh2kNGc5k",
-	"VdBP32hGl06vcknv0Hs5x2PZr1GjUymUcQNE1wE+pLnUc8zA3KODa5yOg28YAV9D2FF4yp3wVhqcDofD",
-	"jliSKtGTLO1eIDNJ+Fd+1RX+uPBZoK5KdkWaS2p54imH8dujoO60bavS5dbfnDOuI++RpCr8saf/CH9k",
-	"AaVMc6VxvXp0KDM5LTj5MgTjQOmZ6cyxjawvmxS3dSn71szV07XKSu8XxmV7Lt8udujDtUE3le3LKm13",
-	"9nYHdil4YfS8Q7Fm9csywq6uQ9/jXHlC9z8bXiq9gevPX3HDQYFvffmi9518dOWxA3CqO+m+PUSKLd1u",
-	"Pxa87AmPaeUU1WMmwij2V5QOHdc7fpqGp39uXPjm+lL0Im3ySfHtDkg5kRVLPjgA/ihVtvzWA87B9epx",
-	"ah4wA05sIP6xUjkfKMqDkzozZVFz7QLKHfIHkS7AmUpnvj/RZ0xwGtNAb8pDaTIsCsxAepCQJO0ykCSw",
-	"Xv07kKCXZaBGT65KiT+sPGYTvciRcuZHglx6oIUBKx2pVFmpyXMul1LXfYCroGMpa0gdSkKQYNF5xqWm",
-	"iZZpaipNYHRRwyLHwL1c9lOVIZCBO0QLcp+eJVNFH+AyR8jQqzmbNNFcTqIX5s5UFpwxpQepM0CdrVeP",
-	"ZNarRwyPqauDs/sTHQodMVmL3ywHzMkCmDPg7OJc9ASLjWEZ9k/7J4wtY1FLq8RIvOgP+y8CbikPsBg0",
-	"Bg1ck3sxjWPyHUSZCEtLnq106NHdY/C5i9mKGSTJBpZJ0gc4n8Xg8wKHQhbB4okmeRcdB+EUBw6pctpD",
-	"krwc/gKvjJ4VKqUkgYWiHGRXCQ61c6KtrAsjM/AmdkWFQk2QSg3WmdLSrjUiA+RqkHOpGjdyVm55UFwY",
-	"T2fRGZs6JGLioadfTVY37Mk44L/S2kKl4fvBR2/0rvHkf//vcCZG4v8Gu8500LSlg8Myt9zPcHIVhoXY",
-	"loQwnQ5Pvpv4vZ4nyD6IcwPxiP+MAfRy+Mt3Ex95uEPuVYOdDU4AH5QnHwtaVZbS1WIkXh1nJWySklPH",
-	"NLRd1DEVAyoq5wIsWkkZjh0UzLNtyB9jIlDxMyFhj+a/CQbDHweDinLUxIdvQHDy/CA41/eyUBmDL2Pp",
-	"sjgEQFsvkDqiROn5BgUxsJFI59gR1NdI71A8o2cD73fY9qqBYRXf72hajD7sE/SHm+VN2+b3SE5hU2/T",
-	"1jFc5WaqwGi0VbH9esrsC37/jIaHprDD8Ga9bdG/UBaUQ5pjeheV93E2HshNM/E0E40rVhG5E2BKMk66",
-	"GpKkNYYnSSgGDlNU92GjP5pVmZsmXCnMwrfJgwx8NCry03aQYkq2RmnqT/REX+6oS5UlZkoSFnUcvX1r",
-	"GtddvUrgNFTcj0y00QgLqQKAWx0JNySM7dJSDYWZTmtQMwi7pUOQ91IVTIN9gGtuQuRE+zD37h0inQvW",
-	"H90XTHGutO9BIWPqhC5sopuZHSpdoPf7hFoUHm63QfJ3yt4+xaLNLce2K3ym4vnU1c6PptOnLnc6EqHZ",
-	"Ap6kC1V1LyfGvMph36YANP4OYA6glB0k1g7Kl7mskT/mjUcueXmcaBfSkeb+zNCWBU5/QCtwaUzox4FN",
-	"2jSY/r+rmW9RHhTM/Z6cy0Mwq53C0aELPwh3ErtSetCp2LmTsd3f3bSE7j5Jwr1OksCnCl3N2ShLJHTw",
-	"7mp8yRqQDFEMLDfRXIfMlNcwg5kzZSvHtii47cFt7FRue1wYbo+a9ttQlc6KYnMv5EOZeDP+43eIYyGP",
-	"NMRN9BxuWxdMt32AMzhZrx6NXq8eT+LIxsOJV6Ut6sNJJvTzubQWdZgDNgYdDlR/jyPNRMeZxmHlcTeg",
-	"xemscthVQV4jXXtWMYwpjft8CDe3aiI4VvREHJa314H7Cd9rIfBwmr45QP5JLAb7Id4VfusMmdQU4BeK",
-	"0vwoa48pIox0DmXBM5zigZStWUb0MmlEaypXNLO1Hw0G0qp+cw3bT00pljfL/wQAAP//dbl7/dcWAAA=",
+	"H4sIAAAAAAAC/7xX224bNxN+lQH//yJRt17ZCYpUd0rQFikSwLAb5CI2Ymp3tGK8S66HQytCICBXvW8f",
+	"oY+WJymG1FlrJW3j3OlAznwz3zcHflCFa1pn0bJXgw/KFxNsdPw4tM7OGhf8OXpvnD1D3zrrUf5rybVI",
+	"bDCeLJy9RfKajbPPS/mFZy2qgfJMxlZqnil83xpC/9yeY+FsGa+NHTWa1UAZy49OVLa8ZSxjhSTX2F2j",
+	"7TQ4xZF3xTXyK6o7DswzRXgTDGGpBm8WdnZudaC6XIFwo3dYsHgaBp7cHftdCDsBdJl/NtH8Er3XVbRe",
+	"oi/ItJJKNVBD8MZWNQLaW6xdizB2BHiLNIPXODqPsch3y0cX9sJ++vgX9HrFRHOvBwCffv8Trppk/Aq+",
+	"gys2DXrWTXsFmhBaQo+WAZY3Wy2Ae710c5GeIV+B8avDD6YTtMATBHLBloC29A/XJsTF29D2etHEhsMD",
+	"JnTBQdf1LNmSQIZ1DY4nSFC4ZmRs1JaPoE1lHWEJo1m04JFukY4uhN5/K8shb+mx1IzfC3KVKRvqWo9q",
+	"VAOmgNm+iWbN3WfPrrJxp7v9K/GHDwptaERIwq1EGolSyeTb0G5I6y4Fyr/ZblK6FPkTkaN9pZfI2tT+",
+	"iwLFpYnDmNKxLgwvXGXsGd4E9LwPpdXeTx11cxo8ktUNft796mS2ttgF5tTZqgOESb/ie920kgvVyrnP",
+	"8RCvdXk5w8p4RvpmUXeBeOWR9tvQaRjVpoBbg1NwY9AWdFG4YHmv5sx/RWdE1AcgzjPlsQhkeHYusyq5",
+	"fYqakKRTy7dR/Pbzsr5+ff2bytJkE0vp3zVPE+ZWzcWwsWO3H/y6z0rtxX5jCoSp4Qno5YwEKUhjqwz8",
+	"tWnhIvT7Jz+AFCcBOY7lloG2JbhoV9fLFAJF3ikeSW2MDUc9yWiA4elzlSmp2QTn+Kh/dCw5dS1a3Ro1",
+	"UI+O+kePooh5EtORL2zntNBUlI9LohK6Vj1RnTrPw3R6KUCVGEHPT105W3RSRhtv67atTRHv5++8s+ul",
+	"QT79n3CsBup/+XqryBcrRb6r7/k29dJJ4g9p0sY4TvrHX8391hiPvndG7YKOglAzlpLhx/0fv5r71FQ7",
+	"/L5aaB10TajLGeB749knpYem0TQTKURUoKEVIXjBsxLQg2W5QBM8wwghWHMT8GG0kdfSSg8LIHbbe6J9",
+	"q5N/Eef9b8b5eSgK9D5xfXz/XD/VpeirRMtG17scv3AVGLtsLEkHxlarXhvZTD20wg4mf0F+ieoe0xmH",
+	"Q0dYp+TGpsat5qwGb7bb8pvL+eVmtGfIgdISWAQiEbToGNoNY/lyxt4V76mJE/feIo6TvyNiwQW0oSwB",
+	"69M7KV8NhcNFt3hWrZ5Z6j6b311vua5GuJppi4DWLXFLru+cSfRNtYk6vQkYFrwtUyHD8IuycC4H9xLw",
+	"eH8an8kwxRJ8Kt1xqOtZrN+Tb9CrBSUUuq6xBHYOboIprsX/PxH+C9S3uKX7zZ087ghxY0AwTYOl0YwL",
+	"F/nU53H/P1ARr/2z5QuBdIOM5CMiGQHqJiDN5FETV7HVq3i7IWcbWdrd1S53KDpOGt2ZaG1FuowpWj9S",
+	"d8SzXqrkQUuo608f/5B1KS5ZKffpZZfgB3nlx1VtkOe1K3Q9cZ4HT/pP+mp+Of87AAD//y855ePHEAAA",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file
