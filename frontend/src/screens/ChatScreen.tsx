@@ -6,7 +6,7 @@ import {
 } from 'react-native'
 import { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
-import { ChatMessage } from '../api/'
+import { ChatMessage } from '../api'
 import { useAuth } from '../auth/AuthContext'
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Chat'>
