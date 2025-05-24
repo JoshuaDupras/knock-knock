@@ -53,6 +53,8 @@ jobs:
           script: |
             set -eux
             cd /srv/chat-app
+            git fetch --tags
+            git reset --hard origin/main
             echo "IMAGE_TAG=${IMAGE_TAG}" > .env        # Compose reads this
             docker compose --env-file .env -f docker-compose.prod.yml pull
             docker compose --env-file .env -f docker-compose.prod.yml up -d --remove-orphans
