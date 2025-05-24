@@ -53,6 +53,12 @@ jobs:
           script: |
             set -eux
             cd /srv/knock-knock
+            cat > .env <<EOF
+            IMAGE_TAG=${IMAGE_TAG}
+            ORG=joshuadupras
+            REPO=knock-knock
+            EOF
+
             git fetch --tags
             git reset --hard origin/main
             echo "IMAGE_TAG=${IMAGE_TAG}" > .env        # Compose reads this
