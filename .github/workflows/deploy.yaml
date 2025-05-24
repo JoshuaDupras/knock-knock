@@ -52,9 +52,7 @@ jobs:
           envs: IMAGE_TAG
           script: |
             set -eux
-            mkdir -p /srv/knock-knock
-            chown deploy:deploy /srv/knock-knock
-            cd /srv/knock-knock
+            cd /srv/chat-app
             echo "IMAGE_TAG=${IMAGE_TAG}" > .env        # Compose reads this
             docker compose --env-file .env -f docker-compose.prod.yml pull
             docker compose --env-file .env -f docker-compose.prod.yml up -d --remove-orphans
