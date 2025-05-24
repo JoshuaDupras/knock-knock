@@ -1,0 +1,19 @@
+version: "3.9"
+
+services:
+  api:
+    image: ghcr.io/${ORG}/${REPO}-api:${IMAGE_TAG}
+    restart: always
+    expose: [3000]
+    networks: [app]
+
+  web:
+    image: ghcr.io/${ORG}/${REPO}-web:${IMAGE_TAG}
+    restart: always
+    ports:
+      - "80:80"
+    depends_on: [api]
+    networks: [app]
+
+networks:
+  app:
