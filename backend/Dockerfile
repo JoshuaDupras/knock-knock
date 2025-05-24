@@ -1,9 +1,9 @@
 # --- build stage ---
 FROM golang:1.22 AS builder
 WORKDIR /src
-COPY backend/go.* ./
+COPY go.* ./
 RUN go mod download
-COPY backend/ .
+COPY . .
 RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /out/server .
 
 # --- tiny runtime ---
