@@ -55,10 +55,10 @@ func StartServer() {
 	// ── 4. serve ──────────────────────────────────────────────────
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = "3000"
 	}
-	addr := "0.0.0.0:8080"
-	slog.Info("server starting", "addr", "http://"+addr)
+	addr := "0.0.0.0:" + port
+	slog.Info("server starting", "addr", addr)
 
 	if err := http.ListenAndServe(addr, rootHandler); err != nil {
 		slog.Error("server failed", "err", err)
