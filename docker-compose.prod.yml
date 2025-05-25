@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   backend:
-    image: ghcr.io/${ORG}/${REPO}-api:${IMAGE_TAG}
+    image: ghcr.io/${ORG}/${REPO}-backend:${IMAGE_TAG}
     restart: always
     expose: [3000]
     networks: [app]
@@ -12,7 +12,7 @@ services:
     restart: always
     ports:
       - "80:80"
-    depends_on: [api]
+    depends_on: [backend]
     networks: [app]
 
 networks:
