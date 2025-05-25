@@ -15,7 +15,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
 
   // the generator expects a function that returns the token
   const cfg = new Configuration({
-    basePath: 'http://localhost:8080',
+    basePath: process.env.REACT_APP_API_BASE ?? '/api',
     accessToken: async () => token ?? '',
   })
 

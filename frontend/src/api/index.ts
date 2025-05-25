@@ -13,7 +13,7 @@ export const setAuthToken = (t: string|null) => { authToken = t }
 
 // ➌ Singleton client
 const cfg = new Configuration({
-  basePath: process.env.REACT_APP_API_BASE ?? 'http://localhost:8080',
+  basePath: process.env.REACT_APP_API_BASE ?? '/api',
   accessToken: async () => authToken ?? '',
 })
 export const api = new DefaultApi(cfg)
