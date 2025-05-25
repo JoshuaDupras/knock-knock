@@ -1,5 +1,5 @@
 // src/api.ts
-const BASE = 'http://localhost:8080'
+const BASE = process.env.REACT_APP_API_BASE ?? '/api';
 
 export interface AnonymousSessionResponse {
   token: string
