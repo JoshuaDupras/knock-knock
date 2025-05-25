@@ -53,6 +53,10 @@ func StartServer() {
 	rootHandler := enableCORS(openapiMux)
 
 	// ── 4. serve ──────────────────────────────────────────────────
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
 	addr := "0.0.0.0:8080"
 	slog.Info("server starting", "addr", "http://"+addr)
 
