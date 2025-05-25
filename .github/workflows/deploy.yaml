@@ -52,16 +52,25 @@ jobs:
           envs: IMAGE_TAG
           script: |
             set -eux
+
             cd /srv/knock-knock
+
+            # 1) pull latest compose & code
+            git fetch --tags
+            git reset --hard origin/main
+
+            # 2) write all three vars in one go
             cat > .env <<EOF
             IMAGE_TAG=${IMAGE_TAG}
             ORG=joshuadupras
             REPO=knock-knock
             EOF
 
-            git fetch --tags
-            git reset --hard origin/main
-            echo "IMAGE_TAG=${IMAGE_TAG}" > .env        # Compose reads this
+            # 3) grab the new images
             docker compose --env-file .env -f docker-compose.prod.yml pull
+
+            # 4) recreate containers
             docker compose --env-file .env -f docker-compose.prod.yml up -d --remove-orphans
-            docker image prune -af                      # clean old layers
+
+            # 5) cleanup old layers
+            docker image prune -af
