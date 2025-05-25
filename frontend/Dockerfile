@@ -1,4 +1,6 @@
 FROM node:20-alpine AS build
+ARG API_BASE=/api
+ENV REACT_APP_API_BASE=${API_BASE}
 WORKDIR /web
 
 # 1) Install dependencies (including the local Expo CLI)

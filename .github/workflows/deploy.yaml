@@ -49,6 +49,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: ./frontend
+          build-args: API_BASE=/api
           push: true
           tags: ${{ env.REGISTRY }}/${{ steps.slug.outputs.repo }}-frontend:${{ env.IMAGE_TAG }}
 
@@ -84,7 +85,7 @@ jobs:
 
             # 4️) Pull the new images & (re)create the stack
             docker compose --env-file .env -f docker-compose.prod.yml pull
-            docker compose --env-file .env -f docker-compose.prod.yml up -d --remove-orphans
+            docker compose --env-file .env -f docker-compose.prod.yml up -d --remove-orphans --force-recreate proxy
 
             # 5️) Reclaim disk
             docker image prune -af
