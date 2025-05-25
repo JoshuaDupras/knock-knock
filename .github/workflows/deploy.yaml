@@ -62,7 +62,7 @@ jobs:
             # 2) write all three vars in one go
             cat > .env <<EOF
             IMAGE_TAG=${IMAGE_TAG}
-            REGISTRY: ghcr.io
+            REGISTRY=${REGISTRY}
             ORG=joshuadupras
             REPO=knock-knock
             EOF
