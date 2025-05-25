@@ -7,7 +7,7 @@ info:
     and optional account registration.
 
 servers:
-  - url: http://localhost:8080
+  - url: /api
 
 paths:
   /ping:
