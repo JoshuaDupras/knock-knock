@@ -66,10 +66,14 @@ jobs:
             REPO=knock-knock
             EOF
 
-            # 3) grab the new images
-            docker compose --env-file .env -f docker-compose.prod.yml pull
+            # 3) Log into GHCR so pulls of private images succeed
+            echo "${{ secrets.REGISTRY_TOKEN }}" | \
+              docker login ${REGISTRY} \
+                --username="${{ secrets.REGISTRY_USERNAME }}" \
+                --password-stdin
 
-            # 4) recreate containers
+            # 4) Pull & recreate your stack
+            docker compose --env-file .env -f docker-compose.prod.yml pull
             docker compose --env-file .env -f docker-compose.prod.yml up -d --remove-orphans
 
             # 5) cleanup old layers
