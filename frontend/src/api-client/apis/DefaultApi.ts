@@ -263,7 +263,7 @@ export class DefaultApi extends runtime.BaseAPI {
         const headerParameters: runtime.HTTPHeaders = {};
 
         const response = await this.request({
-            path: `/ws/chat`,
+            path: `/api/ws/chat`,
             method: 'GET',
             headers: headerParameters,
             query: queryParameters,
