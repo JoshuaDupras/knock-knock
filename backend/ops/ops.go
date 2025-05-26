@@ -245,11 +245,12 @@ func (s *Server) PostSessionAnonymous(w http.ResponseWriter, r *http.Request) {
     token, _ := issueJWT(u, anonSessionTTL)
     tryPair()
 
+    scheme := "ws"
+    if r.TLS != nil { scheme = "wss" }
     resp := api.AnonymousSessionResponse{
-        Token:            token,
-        WebsocketUrl:     "ws://" + r.Host + "/ws/chat?token=" + token,
+        Token:         token,
+        WebsocketUrl:  fmt.Sprintf("%s://%s/api/ws/chat?token=%s", scheme, r.Host, token),
         ExpiresInSeconds: int32(anonSessionTTL.Seconds()),
-        ConversationId:   nil,
     }
     w.Header().Set("Content-Type", "application/json")
     w.WriteHeader(http.StatusCreated)
